@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -15,29 +17,14 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var keycloakSection = builder.Configuration.GetSection("Keycloak");
-var allowedClientIds = keycloakSection.GetSection("AllowedClientIds").Get<string[]>() ?? [];
 var requireHttpsMetadata = keycloakSection.GetValue("RequireHttpsMetadata", true);
 var keycloakAuthority = keycloakSection["Authority"];
 var keycloakMetadataAddress = keycloakSection["MetadataAddress"];
 
-builder.Services.AddAuthentication(AuthSchemes.Client)
-    .AddJwtBearer(AuthSchemes.Client, options =>
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        options.Authority = keycloakAuthority;
-        options.Audience = keycloakSection["Audience"];
-        options.RequireHttpsMetadata = requireHttpsMetadata;
-        if (keycloakMetadataAddress is not null)
-            options.MetadataAddress = keycloakMetadataAddress;
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true
-        };
-    })
-    .AddJwtBearer(AuthSchemes.User, options =>
-    {
+        options.MapInboundClaims = false;
         options.Authority = keycloakAuthority;
         options.Audience = keycloakSection["Audience"];
         options.RequireHttpsMetadata = requireHttpsMetadata;
@@ -54,23 +41,42 @@ builder.Services.AddAuthentication(AuthSchemes.Client)
         };
         options.Events = new JwtBearerEvents
         {
-            OnMessageReceived = ctx =>
+            OnTokenValidated = ctx =>
             {
-                var header = ctx.Request.Headers["X-User-Authorization"].ToString();
-                if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                    ctx.Token = header["Bearer ".Length..].Trim();
+                if (ctx.Principal?.Identity is not ClaimsIdentity identity)
+                    return Task.CompletedTask;
+
+                var azp = ctx.Principal.FindFirst("azp")?.Value;
+                var resourceAccessJson = ctx.Principal.FindFirst("resource_access")?.Value;
+                if (azp is null || resourceAccessJson is null)
+                    return Task.CompletedTask;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(resourceAccessJson);
+                    if (doc.RootElement.TryGetProperty(azp, out var clientAccess) &&
+                        clientAccess.TryGetProperty("roles", out var roles))
+                    {
+                        foreach (var role in roles.EnumerateArray())
+                        {
+                            var value = role.GetString();
+                            if (value is not null)
+                                identity.AddClaim(new Claim(identity.RoleClaimType, value));
+                        }
+                    }
+                }
+                catch { }
+
                 return Task.CompletedTask;
             }
         };
     });
 
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(AuthSchemes.ClientPolicy, policy =>
+    .AddPolicy(AuthSchemes.CmsAccessPolicy, policy =>
     {
-        policy.AddAuthenticationSchemes(AuthSchemes.Client);
         policy.RequireAuthenticatedUser();
-        if (allowedClientIds.Length > 0)
-            policy.RequireClaim("azp", allowedClientIds);
+        policy.RequireRole("cms:access");
     });
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();

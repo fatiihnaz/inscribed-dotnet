@@ -10,7 +10,6 @@ services:
       - ConnectionStrings__Default=Host=db;Port=5432;Database=skylab_cms;Username=postgres;Password=${DB_PASSWORD}
       - Keycloak__Authority=https://e.yildizskylab.com/realms/e-skylab
       - Keycloak__Audience=skylab-cms
-      - Keycloak__AllowedClientIds__0=cms-example
     depends_on:
       db:
         condition: service_healthy

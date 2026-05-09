@@ -7,5 +7,6 @@ public enum BlockType
     Image,
     Link,
     Group,
+    Date,
     DataSource
 }
