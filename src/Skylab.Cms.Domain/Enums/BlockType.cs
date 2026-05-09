@@ -6,7 +6,7 @@ public enum BlockType
     RichText,
     Image,
     Link,
-    Group,
+    List,
     Date,
     DataSource
 }
