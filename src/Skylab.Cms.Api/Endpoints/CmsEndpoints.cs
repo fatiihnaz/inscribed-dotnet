@@ -10,7 +10,7 @@ public static class CmsEndpoints
 
     public static IEndpointRouteBuilder MapCmsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/cms").RequireAuthorization(AuthSchemes.CmsAccessPolicy);
+        var group = app.MapGroup("/cms").RequireAuthorization("CmsAccess");
 
         group.MapGet("/content", async (string? slug, HttpContext context, IContentService service, CancellationToken ct) =>
         {
@@ -50,6 +50,19 @@ public static class CmsEndpoints
 
             var response = await service.UpdatePageAsync(clientId, request, updatedBy, ct);
             return Results.Ok(response);
+        });
+
+        group.MapPut("/draft", async (HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>
+        {
+            var clientId = context.User.GetClientId();
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Results.Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(request.Slug))
+                return Results.BadRequest("Slug is required.");
+
+            await service.SaveDraftAsync(clientId, request, ct);
+            return Results.NoContent();
         });
 
         group.MapPost("/sync", async (HttpContext context, SyncManifestRequest request, IContentService service, CancellationToken ct) =>

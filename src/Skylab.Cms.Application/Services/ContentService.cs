@@ -1,6 +1,8 @@
+using System.Text.Json.Nodes;
 using Skylab.Cms.Application.Contracts.Repositories;
 using Skylab.Cms.Application.Contracts.Requests;
 using Skylab.Cms.Application.Contracts.Responses;
+using Skylab.Cms.Application.Contracts.Services;
 using Skylab.Cms.Application.Services.Helpers;
 using Skylab.Cms.Domain.Entities;
 using Skylab.Cms.Domain.Enums;
@@ -11,27 +13,49 @@ namespace Skylab.Cms.Application.Services;
 public sealed class ContentService : IContentService
 {
     private readonly IContentBlockRepository _repository;
+    private readonly IDraftService _draftService;
 
-    public ContentService(IContentBlockRepository repository)
+    public ContentService(IContentBlockRepository repository, IDraftService draftService)
     {
         _repository = repository;
+        _draftService = draftService;
     }
 
     public async Task<ContentResponse> GetBySlugAsync(string clientId, string slug, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(slug);
 
-        var blocks = await _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
+        var blocksTask = _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
+        var draftTask = _draftService.GetDraftAsync(clientId, normalizedSlug, cancellationToken);
+
+        await Task.WhenAll(blocksTask, draftTask);
+
+        var blocks = blocksTask.Result;
+        var draft = draftTask.Result;
+
+        var draftLookup = draft?.ToDictionary(d => d.BlockPath, d => d.Value);
 
         var blockResponses = blocks
-            .Select(block => new BlockResponse(
-                BlockPath: block.BlockPath,
-                BlockType: block.BlockType.ToString(),
-                Value: block.Value,
-                SortOrder: block.SortOrder,
-                Version: block.Version,
-                Data: null
-            )).ToList();
+            .Select(block =>
+            {
+                JsonNode? draftValue = null;
+                if (draftLookup is not null
+                    && draftLookup.TryGetValue(block.BlockPath, out var overlayValue)
+                    && overlayValue?.ToJsonString() != block.Value.ToJsonString())
+                {
+                    draftValue = overlayValue;
+                }
+
+                return new BlockResponse(
+                    BlockPath: block.BlockPath,
+                    BlockType: block.BlockType.ToString(),
+                    Value: block.Value,
+                    SortOrder: block.SortOrder,
+                    Version: block.Version,
+                    Data: null,
+                    DraftValue: draftValue
+                );
+            }).ToList();
 
         return new ContentResponse(normalizedSlug, blockResponses);
     }
@@ -87,6 +111,8 @@ public sealed class ContentService : IContentService
 
         if (updated > 0)
             await _repository.SaveChangesAsync(cancellationToken);
+
+        await _draftService.DeleteDraftAsync(clientId, normalizedSlug, cancellationToken);
 
         return new UpdatePageResponse(updated, unchanged);
     }
@@ -145,5 +171,16 @@ public sealed class ContentService : IContentService
         await _repository.SaveChangesAsync(cancellationToken);
 
         return new SyncResultResponse(toCreate.Count, toArchive.Count, unchanged);
+    }
+
+    public async Task SaveDraftAsync(string clientId, UpdatePageRequest request, CancellationToken cancellationToken = default)
+    {
+        var normalizedSlug = SlugNormalizer.NormalizeSlug(request.Slug);
+
+        var draftBlocks = request.Blocks
+            .Select(b => new DraftBlock(SlugNormalizer.NormalizeBlockPath(b.BlockPath), b.Value))
+            .ToList();
+
+        await _draftService.SaveDraftAsync(clientId, normalizedSlug, draftBlocks, cancellationToken);
     }
 }

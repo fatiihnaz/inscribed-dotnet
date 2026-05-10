@@ -8,5 +8,6 @@ public sealed record BlockResponse(
     JsonNode Value,
     int SortOrder,
     int Version,
-    JsonNode? Data
+    JsonNode? Data,
+    JsonNode? DraftValue = null
 );

@@ -3,6 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Skylab.Cms.Application.Contracts.Repositories;
+using Skylab.Cms.Application.Contracts.Services;
+using Skylab.Cms.Infrastructure.Cache;
 using Skylab.Cms.Infrastructure.Storage;
 using Skylab.Cms.Infrastructure.Storage.Repositories;
 
@@ -23,6 +25,10 @@ public static class DependencyInjection
                 npgsql.MigrationsAssembly(typeof(CmsDbContext).Assembly.FullName)));
 
         services.AddScoped<IContentBlockRepository, ContentBlockRepository>();
+
+        var redisConnectionString = configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured.");
+        services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);
+        services.AddScoped<IDraftService, RedisDraftService>();
 
         return services;
     }

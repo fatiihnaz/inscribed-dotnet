@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Skylab.Cms.Api.Authentication;
 using Skylab.Cms.Api.Endpoints;
 using Skylab.Cms.Api.Middleware;
 using Skylab.Cms.Application;
@@ -73,7 +72,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(AuthSchemes.CmsAccessPolicy, policy =>
+    .AddPolicy("CmsAccess", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.RequireRole("cms:access");
