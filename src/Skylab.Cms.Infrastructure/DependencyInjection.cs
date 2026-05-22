@@ -25,6 +25,7 @@ public static class DependencyInjection
                 npgsql.MigrationsAssembly(typeof(CmsDbContext).Assembly.FullName)));
 
         services.AddScoped<IContentBlockRepository, ContentBlockRepository>();
+        services.AddScoped<ICollectionItemRepository, CollectionItemRepository>();
 
         var redisConnectionString = configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured.");
         services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);

@@ -106,5 +106,6 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapCmsEndpoints();
+app.MapCollectionEndpoints();
 
 app.Run();
