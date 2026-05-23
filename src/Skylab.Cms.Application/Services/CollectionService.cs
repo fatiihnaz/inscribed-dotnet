@@ -21,6 +21,9 @@ public sealed class CollectionService : ICollectionService
         _policyResolver = policyResolver;
     }
 
+    public Contracts.Schemas.CollectionSchema GetSchema(CollectionKey key)
+        => _policyResolver.Resolve(key).Schema;
+
     public async Task<IReadOnlyList<CollectionItemResponse>> ListAsync(CollectionKey key, ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
         var policy = _policyResolver.Resolve(key);
@@ -56,12 +59,14 @@ public sealed class CollectionService : ICollectionService
         if (!policy.CanEdit(user, normalizedSlug))
             throw new UnauthorizedAccessException($"User cannot edit '{key}/{normalizedSlug}'.");
 
+        var validated = CollectionSchemaValidator.ValidateAndStrip(policy.Schema, request.Data);
+
         var utcNow = DateTime.UtcNow;
         var item = await _repository.GetBySlugAsync(key, normalizedSlug, cancellationToken: cancellationToken);
 
         if (item is null)
         {
-            item = CollectionItem.Create(key, normalizedSlug, request.Data, updatedBy, utcNow,
+            item = CollectionItem.Create(key, normalizedSlug, validated, updatedBy, utcNow,
                 request.PublishedAt, request.Status, request.Category);
             await _repository.AddAsync(item, cancellationToken);
         }
@@ -70,7 +75,7 @@ public sealed class CollectionService : ICollectionService
             if (request.Version is { } v && v != item.Version)
                 throw new ConcurrencyConflictException($"Version conflict on '{key}/{normalizedSlug}'. Expected {item.Version}, got {v}.");
 
-            item.UpdateData(request.Data, updatedBy, utcNow);
+            item.UpdateData(validated, updatedBy, utcNow);
             item.UpdateMetadata(request.PublishedAt, request.Status, request.Category, updatedBy, utcNow);
         }
 

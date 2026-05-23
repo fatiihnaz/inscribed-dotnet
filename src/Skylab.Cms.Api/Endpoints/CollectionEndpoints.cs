@@ -11,6 +11,12 @@ public static class CollectionEndpoints
     {
         var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("CmsAccess");
 
+        group.MapGet("/schema", (CollectionKey key, ICollectionService service) =>
+        {
+            var schema = service.GetSchema(key);
+            return Results.Ok(schema);
+        });
+
         group.MapGet("/", async (CollectionKey key, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var items = await service.ListAsync(key, context.User, ct);

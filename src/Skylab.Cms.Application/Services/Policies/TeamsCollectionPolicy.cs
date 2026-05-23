@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json.Nodes;
 using Skylab.Cms.Application.Contracts.Policies;
+using Skylab.Cms.Application.Contracts.Schemas;
 using Skylab.Cms.Application.Services.Helpers;
 using Skylab.Cms.Domain.Enums;
 
@@ -9,6 +10,18 @@ namespace Skylab.Cms.Application.Services.Policies;
 public sealed class TeamsCollectionPolicy : ICollectionPolicy
 {
     public CollectionKey Key => CollectionKey.Teams;
+
+    public CollectionSchema Schema { get; } = new([
+        new("desc", FieldType.Text, "Açıklama", Required: true),
+        new("longDesc", FieldType.RichText, "Uzun Açıklama"),
+        new("topics", FieldType.StringArray, "Konular"),
+        new("stack", FieldType.StringArray, "Teknolojiler"),
+        new("recruiting", FieldType.Bool, "Alım Durumu", Required: true),
+        new("recruitingFor", FieldType.Text, "Pozisyon"),
+        new("applyUrl", FieldType.Url, "Başvuru Linki"),
+        new("leads", FieldType.StringArray, "Liderler", ReadOnly: true),
+        new("memberCount", FieldType.Number, "Üye Sayısı", ReadOnly: true),
+    ]);
 
     public bool CanEdit(ClaimsPrincipal user, string slug)
     {

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json.Nodes;
+using Skylab.Cms.Application.Contracts.Schemas;
 using Skylab.Cms.Domain.Enums;
 
 namespace Skylab.Cms.Application.Contracts.Policies;
@@ -7,6 +8,8 @@ namespace Skylab.Cms.Application.Contracts.Policies;
 public interface ICollectionPolicy
 {
     CollectionKey Key { get; }
+
+    CollectionSchema Schema { get; }
 
     bool CanEdit(ClaimsPrincipal user, string slug);
 

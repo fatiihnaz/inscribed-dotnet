@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json.Nodes;
 using Skylab.Cms.Application.Contracts.Policies;
+using Skylab.Cms.Application.Contracts.Schemas;
 using Skylab.Cms.Domain.Enums;
 
 namespace Skylab.Cms.Application.Services.Policies;
@@ -8,6 +9,16 @@ namespace Skylab.Cms.Application.Services.Policies;
 public sealed class NewsCollectionPolicy : ICollectionPolicy
 {
     public CollectionKey Key => CollectionKey.News;
+
+    public CollectionSchema Schema { get; } = new([
+        new("title", FieldType.Text, "Başlık", Required: true),
+        new("summary", FieldType.Text, "Özet"),
+        new("body", FieldType.RichText, "İçerik", Required: true),
+        new("heroImage", FieldType.Url, "Kapak Görseli"),
+        new("tags", FieldType.StringArray, "Etiketler"),
+        new("author", FieldType.Text, "Yazar"),
+        new("featured", FieldType.Bool, "Öne Çıkar"),
+    ]);
 
     public bool CanEdit(ClaimsPrincipal user, string slug) => true;
 
