@@ -47,20 +47,36 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
                 var azp = ctx.Principal.FindFirst("azp")?.Value;
                 var resourceAccessJson = ctx.Principal.FindFirst("resource_access")?.Value;
-                if (azp is null || resourceAccessJson is null)
-                    return Task.CompletedTask;
+                var realmAccessJson = ctx.Principal.FindFirst("realm_access")?.Value;
 
                 try
                 {
-                    using var doc = JsonDocument.Parse(resourceAccessJson);
-                    if (doc.RootElement.TryGetProperty(azp, out var clientAccess) &&
-                        clientAccess.TryGetProperty("roles", out var roles))
+                    if (azp is not null && resourceAccessJson is not null)
                     {
-                        foreach (var role in roles.EnumerateArray())
+                        using var doc = JsonDocument.Parse(resourceAccessJson);
+                        if (doc.RootElement.TryGetProperty(azp, out var clientAccess) &&
+                            clientAccess.TryGetProperty("roles", out var clientRoles))
                         {
-                            var value = role.GetString();
-                            if (value is not null)
-                                identity.AddClaim(new Claim(identity.RoleClaimType, value));
+                            foreach (var role in clientRoles.EnumerateArray())
+                            {
+                                var value = role.GetString();
+                                if (value is not null)
+                                    identity.AddClaim(new Claim(identity.RoleClaimType, value));
+                            }
+                        }
+                    }
+
+                    if (realmAccessJson is not null)
+                    {
+                        using var doc = JsonDocument.Parse(realmAccessJson);
+                        if (doc.RootElement.TryGetProperty("roles", out var realmRoles))
+                        {
+                            foreach (var role in realmRoles.EnumerateArray())
+                            {
+                                var value = role.GetString();
+                                if (value is not null)
+                                    identity.AddClaim(new Claim(identity.RoleClaimType, value));
+                            }
                         }
                     }
                 }

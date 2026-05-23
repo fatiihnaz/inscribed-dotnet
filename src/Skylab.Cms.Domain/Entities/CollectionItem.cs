@@ -12,10 +12,6 @@ public sealed class CollectionItem : Entity
     public bool IsArchived { get; private set; }
     public DateTime? ArchivedAt { get; private set; }
 
-    public DateTime? PublishedAt { get; private set; }
-    public string? Status { get; private set; }
-    public string? Category { get; private set; }
-
     private CollectionItem() { }
 
     public static CollectionItem Create(
@@ -23,10 +19,7 @@ public sealed class CollectionItem : Entity
         string slug,
         JsonNode data,
         string updatedBy,
-        DateTime utcNow,
-        DateTime? publishedAt = null,
-        string? status = null,
-        string? category = null)
+        DateTime utcNow)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(slug);
         ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
@@ -41,10 +34,7 @@ public sealed class CollectionItem : Entity
             UpdatedBy = updatedBy,
             CreatedAt = utcNow,
             UpdatedAt = utcNow,
-            Version = 1,
-            PublishedAt = publishedAt,
-            Status = status,
-            Category = category
+            Version = 1
         };
     }
 
@@ -54,18 +44,6 @@ public sealed class CollectionItem : Entity
         ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
 
         Data = data;
-        UpdatedBy = updatedBy;
-        UpdatedAt = utcNow;
-        Version += 1;
-    }
-
-    public void UpdateMetadata(DateTime? publishedAt, string? status, string? category, string updatedBy, DateTime utcNow)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
-
-        PublishedAt = publishedAt;
-        Status = status;
-        Category = category;
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
         Version += 1;

@@ -11,11 +11,15 @@ public static class TeamRoleParser
     {
         var slugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var role in user.FindAll(ClaimTypes.Role))
+        foreach (var identity in user.Identities)
         {
-            var slug = ToTeamSlug(role.Value);
-            if (slug is not null)
-                slugs.Add(slug);
+            var roleClaimType = identity.RoleClaimType;
+            foreach (var role in identity.FindAll(roleClaimType))
+            {
+                var slug = ToTeamSlug(role.Value);
+                if (slug is not null)
+                    slugs.Add(slug);
+            }
         }
 
         return slugs;

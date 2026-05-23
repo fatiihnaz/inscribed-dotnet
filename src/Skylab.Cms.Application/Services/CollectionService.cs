@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json.Nodes;
 using Skylab.Cms.Application.Contracts.Repositories;
 using Skylab.Cms.Application.Contracts.Requests;
 using Skylab.Cms.Application.Contracts.Responses;
@@ -30,10 +31,29 @@ public sealed class CollectionService : ICollectionService
         var items = await _repository.ListAsync(key, cancellationToken: cancellationToken);
 
         var responses = new List<CollectionItemResponse>(items.Count);
+        var existingSlugs = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var item in items)
         {
             var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
             responses.Add(ToResponse(item, enriched, policy.CanEdit(user, item.Slug)));
+            existingSlugs.Add(item.Slug);
+        }
+
+        foreach (var virtualSlug in policy.GetVirtualSlugs(user))
+        {
+            if (existingSlugs.Contains(virtualSlug)) continue;
+
+            var empty = new JsonObject();
+            var enriched = await policy.EnrichAsync(virtualSlug, empty, cancellationToken);
+            responses.Add(new CollectionItemResponse(
+                Id: Guid.Empty,
+                CollectionKey: key.ToString(),
+                Slug: virtualSlug,
+                Data: enriched,
+                Version: 0,
+                CanEdit: true
+            ));
         }
 
         return responses;
@@ -66,8 +86,7 @@ public sealed class CollectionService : ICollectionService
 
         if (item is null)
         {
-            item = CollectionItem.Create(key, normalizedSlug, validated, updatedBy, utcNow,
-                request.PublishedAt, request.Status, request.Category);
+            item = CollectionItem.Create(key, normalizedSlug, validated, updatedBy, utcNow);
             await _repository.AddAsync(item, cancellationToken);
         }
         else
@@ -76,7 +95,6 @@ public sealed class CollectionService : ICollectionService
                 throw new ConcurrencyConflictException($"Version conflict on '{key}/{normalizedSlug}'. Expected {item.Version}, got {v}.");
 
             item.UpdateData(validated, updatedBy, utcNow);
-            item.UpdateMetadata(request.PublishedAt, request.Status, request.Category, updatedBy, utcNow);
         }
 
         await _repository.SaveChangesAsync(cancellationToken);
@@ -85,16 +103,13 @@ public sealed class CollectionService : ICollectionService
         return ToResponse(item, enriched, canEdit: true);
     }
 
-    private static CollectionItemResponse ToResponse(CollectionItem item, System.Text.Json.Nodes.JsonNode data, bool canEdit) =>
+    private static CollectionItemResponse ToResponse(CollectionItem item, JsonNode data, bool canEdit) =>
         new(
             Id: item.Id,
             CollectionKey: item.CollectionKey.ToString(),
             Slug: item.Slug,
             Data: data,
             Version: item.Version,
-            PublishedAt: item.PublishedAt,
-            Status: item.Status,
-            Category: item.Category,
             CanEdit: canEdit
         );
 }

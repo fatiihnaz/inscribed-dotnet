@@ -13,5 +13,7 @@ public interface ICollectionPolicy
 
     bool CanEdit(ClaimsPrincipal user, string slug);
 
+    IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user) => Array.Empty<string>();
+
     Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default);
 }

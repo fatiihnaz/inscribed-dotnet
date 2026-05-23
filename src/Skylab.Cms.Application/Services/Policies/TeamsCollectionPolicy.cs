@@ -29,6 +29,9 @@ public sealed class TeamsCollectionPolicy : ICollectionPolicy
         return leaderSlugs.Contains(slug);
     }
 
+    public IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user)
+        => [.. TeamRoleParser.GetLeaderTeamSlugs(user)];
+
     public Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default)
     {
         // TODO: external API call — fetch leads + memberCount by team slug, merge into data.

@@ -8,8 +8,5 @@ public sealed record CollectionItemResponse(
     string Slug,
     JsonNode Data,
     int Version,
-    DateTime? PublishedAt,
-    string? Status,
-    string? Category,
     bool CanEdit
 );
