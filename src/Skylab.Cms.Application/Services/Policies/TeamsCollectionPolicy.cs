@@ -11,6 +11,8 @@ public sealed class TeamsCollectionPolicy : ICollectionPolicy
 {
     public CollectionKey Key => CollectionKey.Teams;
 
+    public SlugSource SlugSource => SlugSource.RoleDerived;
+
     public CollectionSchema Schema { get; } = new([
         new("desc", FieldType.Text, "Açıklama", Required: true),
         new("longDesc", FieldType.RichText, "Uzun Açıklama"),
@@ -28,6 +30,8 @@ public sealed class TeamsCollectionPolicy : ICollectionPolicy
         var leaderSlugs = TeamRoleParser.GetLeaderTeamSlugs(user);
         return leaderSlugs.Contains(slug);
     }
+
+    public bool CanCreate(ClaimsPrincipal user) => false;
 
     public IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user)
         => [.. TeamRoleParser.GetLeaderTeamSlugs(user)];

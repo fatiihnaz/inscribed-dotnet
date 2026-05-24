@@ -6,6 +6,7 @@ namespace Skylab.Cms.Application.Services.Policies;
 public interface ICollectionPolicyResolver
 {
     ICollectionPolicy Resolve(CollectionKey key);
+    IReadOnlyCollection<ICollectionPolicy> All { get; }
 }
 
 public sealed class CollectionPolicyResolver : ICollectionPolicyResolver
@@ -16,6 +17,8 @@ public sealed class CollectionPolicyResolver : ICollectionPolicyResolver
     {
         _policies = policies.ToDictionary(p => p.Key);
     }
+
+    public IReadOnlyCollection<ICollectionPolicy> All => _policies.Values;
 
     public ICollectionPolicy Resolve(CollectionKey key)
     {

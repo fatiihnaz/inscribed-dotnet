@@ -11,9 +11,15 @@ public interface ICollectionPolicy
 
     CollectionSchema Schema { get; }
 
+    SlugSource SlugSource { get; }
+
     bool CanEdit(ClaimsPrincipal user, string slug);
 
+    bool CanCreate(ClaimsPrincipal user) => true;
+
     IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user) => Array.Empty<string>();
+
+    string? GetSlugSourceValue(JsonNode data) => null;
 
     Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default);
 }

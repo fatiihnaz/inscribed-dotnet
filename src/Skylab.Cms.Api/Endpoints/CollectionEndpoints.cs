@@ -9,7 +9,23 @@ public static class CollectionEndpoints
 {
     public static IEndpointRouteBuilder MapCollectionEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/cms/collections/me", (HttpContext context, ICollectionService service) =>
+        {
+            var mine = service.GetMyCollections(context.User);
+            return Results.Ok(mine);
+        }).RequireAuthorization("CmsAccess");
+
         var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("CmsAccess");
+
+        group.MapPost("/", async (CollectionKey key, CreateCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var updatedBy = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(updatedBy))
+                return Results.Unauthorized();
+
+            var response = await service.CreateAutoSlugAsync(key, request, context.User, updatedBy, ct);
+            return Results.Created($"/cms/collections/{key}/{response.Slug}", response);
+        });
 
         group.MapGet("/schema", (CollectionKey key, ICollectionService service) =>
         {
