@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Skylab.Cms.Application.Contracts.Repositories;
 using Skylab.Cms.Domain.Entities;
@@ -25,6 +26,32 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             .Where(x => x.CollectionKey == key)
             .OrderBy(x => x.Slug)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
+        CollectionKey key,
+        JsonObject? filterContainment,
+        int offset,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.CollectionItems.AsQueryable().Where(x => x.CollectionKey == key);
+
+        if (filterContainment is { Count: > 0 })
+        {
+            var filterJson = filterContainment.ToJsonString();
+            query = query.Where(x => EF.Functions.JsonContains(x.Data, filterJson));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+
+        var items = await query
+            .OrderBy(x => x.Slug)
+            .Skip(offset)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+        return (items, total);
     }
 
     public async Task<CollectionItem?> GetBySlugAsync(CollectionKey key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default)

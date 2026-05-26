@@ -35,8 +35,17 @@ public static class CollectionEndpoints
 
         group.MapGet("/", async (CollectionKey key, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
-            var items = await service.ListAsync(key, context.User, ct);
-            return Results.Ok(items);
+            var query = context.Request.Query;
+            var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
+            var limit = int.TryParse(query["limit"], out var l) ? Math.Clamp(l, 1, 100) : 50;
+
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "offset", "limit" };
+            var filters = query
+                .Where(kv => !reserved.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
+
+            var result = await service.ListAsync(key, context.User, filters, offset, limit, ct);
+            return Results.Ok(result);
         });
 
         group.MapGet("/{slug}", async (CollectionKey key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>

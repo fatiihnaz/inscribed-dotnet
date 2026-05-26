@@ -12,7 +12,13 @@ public interface ICollectionService
 
     IReadOnlyList<MyCollectionResponse> GetMyCollections(ClaimsPrincipal user);
 
-    Task<IReadOnlyList<CollectionItemResponse>> ListAsync(CollectionKey key, ClaimsPrincipal user, CancellationToken cancellationToken = default);
+    Task<PagedListResponse<CollectionItemResponse>> ListAsync(
+        CollectionKey key,
+        ClaimsPrincipal user,
+        IDictionary<string, string>? filters,
+        int offset,
+        int limit,
+        CancellationToken cancellationToken = default);
 
     Task<CollectionItemResponse?> GetAsync(CollectionKey key, string slug, ClaimsPrincipal user, CancellationToken cancellationToken = default);
 

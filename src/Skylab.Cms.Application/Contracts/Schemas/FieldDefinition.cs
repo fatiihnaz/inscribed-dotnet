@@ -7,5 +7,6 @@ public sealed record FieldDefinition(
     bool Required = false,
     string? Help = null,
     bool ReadOnly = false,
+    bool Filterable = false,
     IReadOnlyList<string>? Options = null
 );

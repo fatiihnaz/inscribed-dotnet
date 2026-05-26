@@ -47,10 +47,21 @@ public sealed class CollectionService : ICollectionService
         return result;
     }
 
-    public async Task<IReadOnlyList<CollectionItemResponse>> ListAsync(CollectionKey key, ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    public async Task<PagedListResponse<CollectionItemResponse>> ListAsync(
+        CollectionKey key,
+        ClaimsPrincipal user,
+        IDictionary<string, string>? filters,
+        int offset,
+        int limit,
+        CancellationToken cancellationToken = default)
     {
         var policy = _policyResolver.Resolve(key);
-        var items = await _repository.ListAsync(key, cancellationToken: cancellationToken);
+
+        var filterJson = filters is { Count: > 0 }
+            ? CollectionFilterParser.Build(policy.Schema, filters)
+            : null;
+
+        var (items, total) = await _repository.ListPagedAsync(key, filterJson, offset, limit, cancellationToken);
 
         var responses = new List<CollectionItemResponse>(items.Count);
         var existingSlugs = new HashSet<string>(StringComparer.Ordinal);
@@ -62,23 +73,26 @@ public sealed class CollectionService : ICollectionService
             existingSlugs.Add(item.Slug);
         }
 
-        foreach (var virtualSlug in policy.GetVirtualSlugs(user))
+        if (filterJson is null && offset == 0)
         {
-            if (existingSlugs.Contains(virtualSlug)) continue;
+            foreach (var virtualSlug in policy.GetVirtualSlugs(user))
+            {
+                if (existingSlugs.Contains(virtualSlug)) continue;
 
-            var empty = new JsonObject();
-            var enriched = await policy.EnrichAsync(virtualSlug, empty, cancellationToken);
-            responses.Add(new CollectionItemResponse(
-                Id: Guid.Empty,
-                CollectionKey: key.ToString(),
-                Slug: virtualSlug,
-                Data: enriched,
-                Version: 0,
-                CanEdit: true
-            ));
+                var empty = new JsonObject();
+                var enriched = await policy.EnrichAsync(virtualSlug, empty, cancellationToken);
+                responses.Add(new CollectionItemResponse(
+                    Id: Guid.Empty,
+                    CollectionKey: key.ToString(),
+                    Slug: virtualSlug,
+                    Data: enriched,
+                    Version: 0,
+                    CanEdit: true
+                ));
+            }
         }
 
-        return responses;
+        return new PagedListResponse<CollectionItemResponse>(responses, total, offset, limit);
     }
 
     public async Task<CollectionItemResponse?> GetAsync(CollectionKey key, string slug, ClaimsPrincipal user, CancellationToken cancellationToken = default)

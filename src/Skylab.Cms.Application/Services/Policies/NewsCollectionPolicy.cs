@@ -19,9 +19,9 @@ public sealed class NewsCollectionPolicy : ICollectionPolicy
         new("summary", FieldType.Text, "Özet"),
         new("body", FieldType.RichText, "İçerik", Required: true),
         new("heroImage", FieldType.Url, "Kapak Görseli"),
-        new("tags", FieldType.StringArray, "Etiketler"),
-        new("author", FieldType.Text, "Yazar"),
-        new("featured", FieldType.Bool, "Öne Çıkar"),
+        new("tags", FieldType.StringArray, "Etiketler", Filterable: true),
+        new("author", FieldType.Text, "Yazar", Filterable: true),
+        new("featured", FieldType.Bool, "Öne Çıkar", Filterable: true),
     ]);
 
     public bool CanEdit(ClaimsPrincipal user, string slug) => true;

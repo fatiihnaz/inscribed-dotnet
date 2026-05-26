@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Skylab.Cms.Domain.Entities;
 using Skylab.Cms.Domain.Enums;
 
@@ -6,6 +7,13 @@ namespace Skylab.Cms.Application.Contracts.Repositories;
 public interface ICollectionItemRepository
 {
     Task<IReadOnlyList<CollectionItem>> ListAsync(CollectionKey key, bool includeArchived = false, CancellationToken cancellationToken = default);
+
+    Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
+        CollectionKey key,
+        JsonObject? filterContainment,
+        int offset,
+        int limit,
+        CancellationToken cancellationToken = default);
 
     Task<CollectionItem?> GetBySlugAsync(CollectionKey key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
 
