@@ -6,7 +6,7 @@ namespace Skylab.Cms.Application.Services.Helpers;
 
 public static class CollectionSchemaValidator
 {
-    public static JsonObject ValidateAndStrip(CollectionSchema schema, JsonNode data)
+    public static JsonObject ValidateAndStrip(CollectionSchema schema, JsonNode data, bool isDraft = false)
     {
         if (data is not JsonObject incoming)
             throw new ValidationException(["Data must be a JSON object."]);
@@ -23,7 +23,7 @@ public static class CollectionSchemaValidator
 
             if (!hasValue)
             {
-                if (field.Required)
+                if (field.Required && !isDraft)
                     errors.Add($"Field '{field.Name}' is required.");
                 continue;
             }

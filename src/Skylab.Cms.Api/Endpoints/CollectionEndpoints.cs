@@ -17,6 +17,31 @@ public static class CollectionEndpoints
 
         var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("CmsAccess");
 
+        group.MapGet("/schema", (CollectionKey key, ICollectionService service) =>
+        {
+            var schema = service.GetSchema(key);
+            return Results.Ok(schema);
+        });
+
+        group.MapGet("/", async (CollectionKey key, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            var query = context.Request.Query;
+            var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
+            var limit = int.TryParse(query["limit"], out var l) ? Math.Clamp(l, 1, 100) : 50;
+
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "offset", "limit" };
+            var filters = query
+                .Where(kv => !reserved.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
+
+            var result = await service.ListAsync(key, context.User, userId, filters, offset, limit, ct);
+            return Results.Ok(result);
+        });
+
         group.MapPost("/", async (CollectionKey key, CreateCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var updatedBy = context.User.GetUserSub();
@@ -27,30 +52,23 @@ public static class CollectionEndpoints
             return Results.Created($"/cms/collections/{key}/{response.Slug}", response);
         });
 
-        group.MapGet("/schema", (CollectionKey key, ICollectionService service) =>
+        group.MapPost("/drafts", async (CollectionKey key, SaveNewDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
-            var schema = service.GetSchema(key);
-            return Results.Ok(schema);
-        });
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
 
-        group.MapGet("/", async (CollectionKey key, HttpContext context, ICollectionService service, CancellationToken ct) =>
-        {
-            var query = context.Request.Query;
-            var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
-            var limit = int.TryParse(query["limit"], out var l) ? Math.Clamp(l, 1, 100) : 50;
-
-            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "offset", "limit" };
-            var filters = query
-                .Where(kv => !reserved.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
-                .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
-
-            var result = await service.ListAsync(key, context.User, filters, offset, limit, ct);
-            return Results.Ok(result);
+            await service.SaveNewDraftAsync(key, userId, context.User, request, ct);
+            return Results.NoContent();
         });
 
         group.MapGet("/{slug}", async (CollectionKey key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
-            var item = await service.GetAsync(key, slug, context.User, ct);
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            var item = await service.GetAsync(key, slug, context.User, userId, ct);
             return item is null ? Results.NotFound() : Results.Ok(item);
         });
 
@@ -62,6 +80,16 @@ public static class CollectionEndpoints
 
             var response = await service.UpsertAsync(key, slug, request, context.User, updatedBy, ct);
             return Results.Ok(response);
+        });
+
+        group.MapPut("/{slug}/draft", async (CollectionKey key, string slug, SaveDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            await service.SaveItemDraftAsync(key, slug, userId, context.User, request, ct);
+            return Results.NoContent();
         });
 
         return app;

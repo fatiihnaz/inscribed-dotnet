@@ -4,6 +4,7 @@ using Skylab.Cms.Application.Contracts.Repositories;
 using Skylab.Cms.Application.Contracts.Requests;
 using Skylab.Cms.Application.Contracts.Responses;
 using Skylab.Cms.Application.Contracts.Schemas;
+using Skylab.Cms.Application.Contracts.Services;
 using Skylab.Cms.Application.Services.Helpers;
 using Skylab.Cms.Application.Services.Policies;
 using Skylab.Cms.Domain.Entities;
@@ -16,11 +17,16 @@ public sealed class CollectionService : ICollectionService
 {
     private readonly ICollectionItemRepository _repository;
     private readonly ICollectionPolicyResolver _policyResolver;
+    private readonly ICollectionDraftService _drafts;
 
-    public CollectionService(ICollectionItemRepository repository, ICollectionPolicyResolver policyResolver)
+    public CollectionService(
+        ICollectionItemRepository repository,
+        ICollectionPolicyResolver policyResolver,
+        ICollectionDraftService drafts)
     {
         _repository = repository;
         _policyResolver = policyResolver;
+        _drafts = drafts;
     }
 
     public CollectionSchema GetSchema(CollectionKey key)
@@ -50,6 +56,7 @@ public sealed class CollectionService : ICollectionService
     public async Task<PagedListResponse<CollectionItemResponse>> ListAsync(
         CollectionKey key,
         ClaimsPrincipal user,
+        string userId,
         IDictionary<string, string>? filters,
         int offset,
         int limit,
@@ -69,7 +76,9 @@ public sealed class CollectionService : ICollectionService
         foreach (var item in items)
         {
             var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
-            responses.Add(ToResponse(item, enriched, policy.CanEdit(user, item.Slug)));
+            var draft = await _drafts.GetItemDraftAsync(key, item.Slug, userId, cancellationToken);
+            var draftData = ResolveItemDraft(item.Data, draft?.Data);
+            responses.Add(ToResponse(item, enriched, policy.CanEdit(user, item.Slug), draftData));
             existingSlugs.Add(item.Slug);
         }
 
@@ -81,13 +90,30 @@ public sealed class CollectionService : ICollectionService
 
                 var empty = new JsonObject();
                 var enriched = await policy.EnrichAsync(virtualSlug, empty, cancellationToken);
+                var draft = await _drafts.GetItemDraftAsync(key, virtualSlug, userId, cancellationToken);
                 responses.Add(new CollectionItemResponse(
                     Id: Guid.Empty,
                     CollectionKey: key.ToString(),
                     Slug: virtualSlug,
                     Data: enriched,
                     Version: 0,
-                    CanEdit: true
+                    CanEdit: true,
+                    DraftData: ResolveNewDraft(draft?.Data)
+                ));
+            }
+
+            var newDraft = await _drafts.GetNewDraftAsync(key, userId, cancellationToken);
+            var newDraftData = ResolveNewDraft(newDraft?.Data);
+            if (newDraftData is not null)
+            {
+                responses.Add(new CollectionItemResponse(
+                    Id: Guid.Empty,
+                    CollectionKey: key.ToString(),
+                    Slug: newDraft!.Slug,
+                    Data: new JsonObject(),
+                    Version: 0,
+                    CanEdit: true,
+                    DraftData: newDraftData
                 ));
             }
         }
@@ -95,7 +121,7 @@ public sealed class CollectionService : ICollectionService
         return new PagedListResponse<CollectionItemResponse>(responses, total, offset, limit);
     }
 
-    public async Task<CollectionItemResponse?> GetAsync(CollectionKey key, string slug, ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    public async Task<CollectionItemResponse?> GetAsync(CollectionKey key, string slug, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
         var policy = _policyResolver.Resolve(key);
@@ -104,7 +130,8 @@ public sealed class CollectionService : ICollectionService
         if (item is null) return null;
 
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
-        return ToResponse(item, enriched, policy.CanEdit(user, item.Slug));
+        var draft = await _drafts.GetItemDraftAsync(key, item.Slug, userId, cancellationToken);
+        return ToResponse(item, enriched, policy.CanEdit(user, item.Slug), ResolveItemDraft(item.Data, draft?.Data));
     }
 
     public async Task<CollectionItemResponse> UpsertAsync(CollectionKey key, string slug, UpsertCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default)
@@ -140,6 +167,7 @@ public sealed class CollectionService : ICollectionService
         }
 
         await _repository.SaveChangesAsync(cancellationToken);
+        await _drafts.DeleteItemDraftAsync(key, normalizedSlug, updatedBy, cancellationToken);
 
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
         return ToResponse(item, enriched, canEdit: true);
@@ -172,8 +200,72 @@ public sealed class CollectionService : ICollectionService
         await _repository.AddAsync(item, cancellationToken);
         await _repository.SaveChangesAsync(cancellationToken);
 
+        await _drafts.DeleteNewDraftAsync(key, updatedBy, cancellationToken);
+
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
         return ToResponse(item, enriched, canEdit: true);
+    }
+
+    public async Task SaveItemDraftAsync(CollectionKey key, string slug, string userId, ClaimsPrincipal user, SaveDraftRequest request, CancellationToken cancellationToken = default)
+    {
+        var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
+        var policy = _policyResolver.Resolve(key);
+
+        if (!policy.CanEdit(user, normalizedSlug))
+            throw new UnauthorizedAccessException($"User cannot edit '{key}/{normalizedSlug}'.");
+
+        var validated = CollectionSchemaValidator.ValidateAndStrip(policy.Schema, request.Data, isDraft: true);
+        await _drafts.SaveItemDraftAsync(key, normalizedSlug, userId, validated, cancellationToken);
+    }
+
+    public async Task SaveNewDraftAsync(CollectionKey key, string userId, ClaimsPrincipal user, SaveNewDraftRequest request, CancellationToken cancellationToken = default)
+    {
+        var policy = _policyResolver.Resolve(key);
+
+        if (!policy.CanCreate(user) && policy.GetVirtualSlugs(user).Count == 0)
+            throw new UnauthorizedAccessException($"User cannot create new items in '{key}'.");
+
+        string? slug = null;
+        if (request.Slug is not null)
+            slug = SlugNormalizer.NormalizeBlockPath(request.Slug);
+
+        switch (policy.SlugSource)
+        {
+            case SlugSource.RoleDerived:
+                if (slug is null)
+                    throw new ValidationException(["Slug is required for role-derived collections."]);
+                if (!policy.GetVirtualSlugs(user).Contains(slug))
+                    throw new UnauthorizedAccessException($"User cannot create item for slug '{slug}'.");
+                if (await _repository.GetBySlugAsync(key, slug, includeArchived: true, cancellationToken) is not null)
+                    throw new ValidationException([$"Slug '{slug}' already exists; use item draft endpoint instead."]);
+                break;
+
+            case SlugSource.UserDefined:
+                if (slug is null)
+                    throw new ValidationException(["Slug is required for user-defined collections."]);
+                if (await _repository.GetBySlugAsync(key, slug, includeArchived: true, cancellationToken) is not null)
+                    throw new ValidationException([$"Slug '{slug}' already exists; use item draft endpoint instead."]);
+                break;
+
+            case SlugSource.AutoGenerated:
+                slug = null;
+                break;
+        }
+
+        var validated = CollectionSchemaValidator.ValidateAndStrip(policy.Schema, request.Data, isDraft: true);
+        await _drafts.SaveNewDraftAsync(key, userId, slug, validated, cancellationToken);
+    }
+
+    private static JsonNode? ResolveItemDraft(JsonNode published, JsonNode? draft)
+    {
+        if (draft is null) return null;
+        return draft.ToJsonString() == published.ToJsonString() ? null : draft;
+    }
+
+    private static JsonNode? ResolveNewDraft(JsonNode? draft)
+    {
+        if (draft is not JsonObject obj || obj.Count == 0) return null;
+        return draft;
     }
 
     private async Task<string> ResolveUniqueSlugAsync(CollectionKey key, string baseSlug, CancellationToken cancellationToken)
@@ -187,13 +279,14 @@ public sealed class CollectionService : ICollectionService
         return candidate;
     }
 
-    private static CollectionItemResponse ToResponse(CollectionItem item, JsonNode data, bool canEdit) =>
+    private static CollectionItemResponse ToResponse(CollectionItem item, JsonNode data, bool canEdit, JsonNode? draftData = null) =>
         new(
             Id: item.Id,
             CollectionKey: item.CollectionKey.ToString(),
             Slug: item.Slug,
             Data: data,
             Version: item.Version,
-            CanEdit: canEdit
+            CanEdit: canEdit,
+            DraftData: draftData
         );
 }

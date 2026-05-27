@@ -5,8 +5,9 @@ namespace Skylab.Cms.Application.Contracts.Responses;
 public sealed record CollectionItemResponse(
     Guid Id,
     string CollectionKey,
-    string Slug,
+    string? Slug,
     JsonNode Data,
     int Version,
-    bool CanEdit
+    bool CanEdit,
+    JsonNode? DraftData = null
 );
