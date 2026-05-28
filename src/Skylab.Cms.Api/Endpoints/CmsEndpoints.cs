@@ -18,10 +18,14 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(clientId))
                 return Results.Unauthorized();
 
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
             if (string.IsNullOrWhiteSpace(slug))
                 return Results.BadRequest("Slug is required.");
 
-            var response = await service.GetBySlugAsync(clientId, slug, ct);
+            var response = await service.GetBySlugAsync(clientId, userId, slug, ct);
             return Results.Ok(response);
         });
 
@@ -58,10 +62,14 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(clientId))
                 return Results.Unauthorized();
 
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
             if (string.IsNullOrWhiteSpace(request.Slug))
                 return Results.BadRequest("Slug is required.");
 
-            await service.SaveDraftAsync(clientId, request, ct);
+            await service.SaveDraftAsync(clientId, userId, request, ct);
             return Results.NoContent();
         });
 

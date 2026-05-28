@@ -5,7 +5,7 @@ namespace Skylab.Cms.Application.Services;
 
 public interface IContentService
 {
-    Task<ContentResponse> GetBySlugAsync(string clientId, string slug, CancellationToken cancellationToken = default);
+    Task<ContentResponse> GetBySlugAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default);
 
     Task<ContentResponse> GetDataBySlugAsync(string clientId, string slug, CancellationToken cancellationToken = default);
 
@@ -13,5 +13,5 @@ public interface IContentService
 
     Task<SyncResultResponse> SyncAsync(string clientId, SyncManifestRequest request, string syncedBy, CancellationToken cancellationToken = default);
 
-    Task SaveDraftAsync(string clientId, UpdatePageRequest request, CancellationToken cancellationToken = default);
+    Task SaveDraftAsync(string clientId, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default);
 }

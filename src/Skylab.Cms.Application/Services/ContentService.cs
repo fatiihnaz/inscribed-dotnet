@@ -21,12 +21,12 @@ public sealed class ContentService : IContentService
         _draftService = draftService;
     }
 
-    public async Task<ContentResponse> GetBySlugAsync(string clientId, string slug, CancellationToken cancellationToken = default)
+    public async Task<ContentResponse> GetBySlugAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(slug);
 
         var blocksTask = _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
-        var draftTask = _draftService.GetDraftAsync(clientId, normalizedSlug, cancellationToken);
+        var draftTask = _draftService.GetDraftAsync(clientId, userId, normalizedSlug, cancellationToken);
 
         await Task.WhenAll(blocksTask, draftTask);
 
@@ -112,7 +112,7 @@ public sealed class ContentService : IContentService
         if (updated > 0)
             await _repository.SaveChangesAsync(cancellationToken);
 
-        await _draftService.DeleteDraftAsync(clientId, normalizedSlug, cancellationToken);
+        await _draftService.DeleteDraftAsync(clientId, updatedBy, normalizedSlug, cancellationToken);
 
         return new UpdatePageResponse(updated, unchanged);
     }
@@ -173,7 +173,7 @@ public sealed class ContentService : IContentService
         return new SyncResultResponse(toCreate.Count, toArchive.Count, unchanged);
     }
 
-    public async Task SaveDraftAsync(string clientId, UpdatePageRequest request, CancellationToken cancellationToken = default)
+    public async Task SaveDraftAsync(string clientId, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(request.Slug);
 
@@ -181,6 +181,6 @@ public sealed class ContentService : IContentService
             .Select(b => new DraftBlock(SlugNormalizer.NormalizeBlockPath(b.BlockPath), b.Value))
             .ToList();
 
-        await _draftService.SaveDraftAsync(clientId, normalizedSlug, draftBlocks, cancellationToken);
+        await _draftService.SaveDraftAsync(clientId, userId, normalizedSlug, draftBlocks, cancellationToken);
     }
 }

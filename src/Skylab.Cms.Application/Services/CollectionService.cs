@@ -259,7 +259,9 @@ public sealed class CollectionService : ICollectionService
     private static JsonNode? ResolveItemDraft(JsonNode published, JsonNode? draft)
     {
         if (draft is null) return null;
-        return draft.ToJsonString() == published.ToJsonString() ? null : draft;
+        var p = JsonNode.Parse(published.ToJsonString());
+        var d = JsonNode.Parse(draft.ToJsonString());
+        return JsonNode.DeepEquals(d, p) ? null : draft;
     }
 
     private static JsonNode? ResolveNewDraft(JsonNode? draft)
