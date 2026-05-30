@@ -9,6 +9,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__Default=Host=db;Port=5432;Database=skylab_cms;Username=postgres;Password=${DB_PASSWORD}
       - ConnectionStrings__Redis=redis:6379
+      - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS}
       - Keycloak__Authority=https://e.yildizskylab.com/realms/e-skylab
       - Keycloak__Audience=skylab-cms
     depends_on:

@@ -96,11 +96,13 @@ builder.Services.AddAuthorizationBuilder()
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
+var corsOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:3001").AllowAnyHeader().AllowAnyMethod();
+        policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod();
     });
 });
 

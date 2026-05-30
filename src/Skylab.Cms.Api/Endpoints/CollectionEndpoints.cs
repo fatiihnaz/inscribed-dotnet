@@ -7,6 +7,9 @@ namespace Skylab.Cms.Api.Endpoints;
 
 public static class CollectionEndpoints
 {
+    private const int PublicReadMaxAgeSeconds = 60;
+    private const int PublicReadStaleSeconds = 300;
+
     public static IEndpointRouteBuilder MapCollectionEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/cms/collections/me", (HttpContext context, ICollectionService service) =>
@@ -19,9 +22,11 @@ public static class CollectionEndpoints
 
         group.MapGet("/schema", (CollectionKey key, HttpContext context, ICollectionService service) =>
         {
-            if (!context.User.IsInRole("cms:access") && !service.AllowsAnonymousRead(key))
+            var isEditor = context.User.IsInRole("cms:access");
+            if (!isEditor && !service.AllowsAnonymousRead(key))
                 return Results.Unauthorized();
 
+            ApplyReadCacheHeaders(context, isEditor);
             var schema = service.GetSchema(key);
             return Results.Ok(schema);
         }).AllowAnonymous();
@@ -33,6 +38,7 @@ public static class CollectionEndpoints
                 return Results.Unauthorized();
 
             var userId = isEditor ? context.User.GetUserSub() ?? string.Empty : string.Empty;
+            ApplyReadCacheHeaders(context, isEditor);
 
             var query = context.Request.Query;
             var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
@@ -74,6 +80,7 @@ public static class CollectionEndpoints
                 return Results.Unauthorized();
 
             var userId = isEditor ? context.User.GetUserSub() ?? string.Empty : string.Empty;
+            ApplyReadCacheHeaders(context, isEditor);
 
             var item = await service.GetAsync(key, slug, context.User, userId, ct);
             return item is null ? Results.NotFound() : Results.Ok(item);
@@ -100,5 +107,11 @@ public static class CollectionEndpoints
         });
 
         return app;
+    }
+
+    private static void ApplyReadCacheHeaders(HttpContext context, bool isEditor)
+    {
+        context.Response.Headers.Vary = "Authorization";
+        context.Response.Headers.CacheControl = isEditor ? "private, no-store" : $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}";
     }
 }
