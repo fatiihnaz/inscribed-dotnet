@@ -32,6 +32,9 @@ public sealed class CollectionService : ICollectionService
     public CollectionSchema GetSchema(CollectionKey key)
         => _policyResolver.Resolve(key).Schema;
 
+    public bool AllowsAnonymousRead(CollectionKey key)
+        => _policyResolver.Resolve(key).AllowAnonymousRead;
+
     public IReadOnlyList<MyCollectionResponse> GetMyCollections(ClaimsPrincipal user)
     {
         var result = new List<MyCollectionResponse>();
@@ -63,6 +66,7 @@ public sealed class CollectionService : ICollectionService
         CancellationToken cancellationToken = default)
     {
         var policy = _policyResolver.Resolve(key);
+        var isAnonymous = string.IsNullOrWhiteSpace(userId);
 
         var filterJson = filters is { Count: > 0 }
             ? CollectionFilterParser.Build(policy.Schema, filters)
@@ -76,13 +80,20 @@ public sealed class CollectionService : ICollectionService
         foreach (var item in items)
         {
             var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+
+            if (isAnonymous)
+            {
+                responses.Add(ToResponse(item, enriched, canEdit: null));
+                continue;
+            }
+
             var draft = await _drafts.GetItemDraftAsync(key, item.Slug, userId, cancellationToken);
             var draftData = ResolveItemDraft(item.Data, draft?.Data);
             responses.Add(ToResponse(item, enriched, policy.CanEdit(user, item.Slug), draftData));
             existingSlugs.Add(item.Slug);
         }
 
-        if (filterJson is null && offset == 0)
+        if (!isAnonymous && filterJson is null && offset == 0)
         {
             foreach (var virtualSlug in policy.GetVirtualSlugs(user))
             {
@@ -130,6 +141,10 @@ public sealed class CollectionService : ICollectionService
         if (item is null) return null;
 
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(userId))
+            return ToResponse(item, enriched, canEdit: null);
+
         var draft = await _drafts.GetItemDraftAsync(key, item.Slug, userId, cancellationToken);
         return ToResponse(item, enriched, policy.CanEdit(user, item.Slug), ResolveItemDraft(item.Data, draft?.Data));
     }
@@ -281,7 +296,7 @@ public sealed class CollectionService : ICollectionService
         return candidate;
     }
 
-    private static CollectionItemResponse ToResponse(CollectionItem item, JsonNode data, bool canEdit, JsonNode? draftData = null) =>
+    private static CollectionItemResponse ToResponse(CollectionItem item, JsonNode data, bool? canEdit, JsonNode? draftData = null) =>
         new(
             Id: item.Id,
             CollectionKey: item.CollectionKey.ToString(),

@@ -13,6 +13,8 @@ public sealed class TeamsCollectionPolicy : ICollectionPolicy
 
     public SlugSource SlugSource => SlugSource.RoleDerived;
 
+    public bool AllowAnonymousRead => true;
+
     public CollectionSchema Schema { get; } = new([
         new("desc", FieldType.Text, "Açıklama", Required: true),
         new("longDesc", FieldType.RichText, "Uzun Açıklama"),

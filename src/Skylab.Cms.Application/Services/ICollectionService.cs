@@ -10,6 +10,8 @@ public interface ICollectionService
 {
     CollectionSchema GetSchema(CollectionKey key);
 
+    bool AllowsAnonymousRead(CollectionKey key);
+
     IReadOnlyList<MyCollectionResponse> GetMyCollections(ClaimsPrincipal user);
 
     Task<PagedListResponse<CollectionItemResponse>> ListAsync(

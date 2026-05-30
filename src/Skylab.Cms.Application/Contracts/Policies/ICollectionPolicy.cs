@@ -13,6 +13,8 @@ public interface ICollectionPolicy
 
     SlugSource SlugSource { get; }
 
+    bool AllowAnonymousRead => false;
+
     bool CanEdit(ClaimsPrincipal user, string slug);
 
     bool CanCreate(ClaimsPrincipal user) => true;
