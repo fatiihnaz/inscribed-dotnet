@@ -1,17 +1,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /app
 
-COPY Skylab.Cms.sln ./
-COPY src/Skylab.Cms.Domain/Skylab.Cms.Domain.csproj              src/Skylab.Cms.Domain/
-COPY src/Skylab.Cms.Application/Skylab.Cms.Application.csproj    src/Skylab.Cms.Application/
-COPY src/Skylab.Cms.Infrastructure/Skylab.Cms.Infrastructure.csproj src/Skylab.Cms.Infrastructure/
-COPY src/Skylab.Cms.Api/Skylab.Cms.Api.csproj                    src/Skylab.Cms.Api/
+COPY Inscribed.sln ./
+COPY src/Inscribed.Domain/Inscribed.Domain.csproj              src/Inscribed.Domain/
+COPY src/Inscribed.Application/Inscribed.Application.csproj    src/Inscribed.Application/
+COPY src/Inscribed.Infrastructure/Inscribed.Infrastructure.csproj src/Inscribed.Infrastructure/
+COPY src/Inscribed.Api/Inscribed.Api.csproj                    src/Inscribed.Api/
 
 RUN dotnet restore
 
 COPY src/ src/
 
-RUN dotnet publish src/Skylab.Cms.Api/Skylab.Cms.Api.csproj \
+RUN dotnet publish src/Inscribed.Api/Inscribed.Api.csproj \
     -c Release \
     -o /app/publish \
     --no-restore
@@ -27,4 +27,4 @@ COPY --from=build /app/publish .
 ENV ASPNETCORE_URLS=http://+:5000
 EXPOSE 5000
 
-ENTRYPOINT ["dotnet", "Skylab.Cms.Api.dll"]
+ENTRYPOINT ["dotnet", "Inscribed.Api.dll"]
