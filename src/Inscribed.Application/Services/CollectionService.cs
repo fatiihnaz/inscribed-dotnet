@@ -282,8 +282,19 @@ public sealed class CollectionService : ICollectionService
     private static JsonNode? ResolveNewDraft(JsonNode? draft)
     {
         if (draft is not JsonObject obj || obj.Count == 0) return null;
-        return draft;
+        return IsEffectivelyEmpty(obj) ? null : draft;
     }
+
+    private static bool IsEffectivelyEmpty(JsonNode? node) => node switch
+    {
+        null => true,
+        JsonObject obj => obj.All(p => IsEffectivelyEmpty(p.Value)),
+        JsonArray arr => arr.Count == 0,
+        JsonValue val when val.TryGetValue<string>(out var s) => string.IsNullOrEmpty(s),
+        JsonValue val when val.TryGetValue<bool>(out var b) => !b,
+        JsonValue val when val.TryGetValue<double>(out var d) => d == 0,
+        _ => false,
+    };
 
     private async Task<string> ResolveUniqueSlugAsync(CollectionKey key, string baseSlug, CancellationToken cancellationToken)
     {
