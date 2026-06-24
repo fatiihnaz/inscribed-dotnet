@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Inscribed.Api.Authentication;
 using Inscribed.Application.Contracts.Requests;
 using Inscribed.Application.Services;
@@ -73,13 +74,16 @@ public static class CmsEndpoints
             return Results.NoContent();
         });
 
-        group.MapPost("/sync", async (HttpContext context, SyncManifestRequest request, IContentService service, CancellationToken ct) =>
+        group.MapPost("/sync", async (HttpContext context, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IContentService service, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
                 return Results.Unauthorized();
 
-            var response = await service.SyncAsync(clientId, request, SyncedByDeployPipeline, ct);
+            if (manifests is null)
+                return Results.BadRequest("Request body must be a manifest array.");
+
+            var response = await service.SyncAsync(clientId, manifests, SyncedByDeployPipeline, ct);
             return Results.Ok(response);
         });
 

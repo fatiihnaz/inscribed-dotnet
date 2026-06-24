@@ -117,25 +117,70 @@ public sealed class ContentService : IContentService
         return new UpdatePageResponse(updated, unchanged);
     }
 
-    public async Task<SyncResultResponse> SyncAsync(string clientId, SyncManifestRequest request, string syncedBy, CancellationToken cancellationToken = default)
+    public async Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default)
     {
-        var normalizedSlug = SlugNormalizer.NormalizeSlug(request.Slug);
         var utcNow = DateTime.UtcNow;
 
-        var existing = await _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
-        var existingByPath = existing.ToDictionary(b => b.BlockPath);
+        var desiredByKey = new Dictionary<(string Slug, string BlockPath), ManifestBlockItem>();
+        var requestSlugs = new HashSet<string>();
 
-        var manifestByPath = request.Blocks.ToDictionary(b => SlugNormalizer.NormalizeBlockPath(b.BlockPath));
+        foreach (var manifest in manifests)
+        {
+            var slug = SlugNormalizer.NormalizeSlug(manifest.Slug);
+            requestSlugs.Add(slug);
+
+            foreach (var item in manifest.Blocks)
+            {
+                var blockPath = SlugNormalizer.NormalizeBlockPath(item.BlockPath);
+                desiredByKey[(slug, blockPath)] = item;
+            }
+        }
+
+        var existing = await _repository.GetByClientAsync(clientId, includeArchived: true, cancellationToken: cancellationToken);
+        var existingByKey = existing.ToDictionary(b => (b.Slug, b.BlockPath));
+
+        var counts = requestSlugs.ToDictionary(slug => slug, _ => new SlugCounts());
+        var prunedSlugs = new HashSet<string>();
 
         var toCreate = new List<ContentBlock>();
-        foreach (var (blockPath, item) in manifestByPath)
+
+        foreach (var block in existing)
         {
-            if (existingByPath.ContainsKey(blockPath))
+            var key = (block.Slug, block.BlockPath);
+
+            if (desiredByKey.TryGetValue(key, out var item))
+            {
+                if (block.IsArchived)
+                {
+                    block.Restore(syncedBy, utcNow);
+                    block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
+                    counts[block.Slug].Restored++;
+                }
+                else
+                {
+                    block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
+                    counts[block.Slug].Unchanged++;
+                }
+            }
+            else if (!block.IsArchived)
+            {
+                block.Archive(syncedBy, utcNow);
+
+                if (requestSlugs.Contains(block.Slug))
+                    counts[block.Slug].Deleted++;
+                else
+                    prunedSlugs.Add(block.Slug);
+            }
+        }
+
+        foreach (var ((slug, blockPath), item) in desiredByKey)
+        {
+            if (existingByKey.ContainsKey((slug, blockPath)))
                 continue;
 
             toCreate.Add(ContentBlock.Create(
                 clientId,
-                normalizedSlug,
+                slug,
                 blockPath,
                 item.BlockType,
                 item.DefaultValue,
@@ -143,34 +188,27 @@ public sealed class ContentService : IContentService
                 syncedBy,
                 utcNow
             ));
-        }
-
-        var toArchive = new List<ContentBlock>();
-        var unchanged = 0;
-
-        foreach (var (blockPath, block) in existingByPath)
-        {
-            if (manifestByPath.TryGetValue(blockPath, out var item))
-            {
-                var drifted = block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
-                if (!drifted) unchanged++;
-            }
-            else
-            {
-                block.Archive(syncedBy, utcNow);
-                toArchive.Add(block);
-            }
+            counts[slug].Created++;
         }
 
         if (toCreate.Count > 0)
             await _repository.AddRangeAsync(toCreate, cancellationToken);
 
-        if (toArchive.Count > 0)
-            _repository.ArchiveRange(toArchive);
-
         await _repository.SaveChangesAsync(cancellationToken);
 
-        return new SyncResultResponse(toCreate.Count, toArchive.Count, unchanged);
+        var results = counts
+            .Select(kvp => new SyncSlugResult(kvp.Key, kvp.Value.Created, kvp.Value.Deleted, kvp.Value.Unchanged, kvp.Value.Restored))
+            .ToList();
+
+        return new SyncResultResponse(results, prunedSlugs.ToList());
+    }
+
+    private sealed class SlugCounts
+    {
+        public int Created;
+        public int Deleted;
+        public int Unchanged;
+        public int Restored;
     }
 
     public async Task SaveDraftAsync(string clientId, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default)

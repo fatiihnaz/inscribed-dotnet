@@ -28,14 +28,23 @@ internal sealed class ContentBlockRepository : IContentBlockRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ContentBlock>> GetByClientAsync(string clientId, bool includeArchived = false, CancellationToken cancellationToken = default)
+    {
+        var query = _context.ContentBlocks.AsQueryable();
+
+        if (includeArchived)
+        {
+            query = query.IgnoreQueryFilters();
+        }
+
+        return await query
+            .Where(x => x.ClientId == clientId)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task AddRangeAsync(IEnumerable<ContentBlock> blocks, CancellationToken cancellationToken = default)
     {
         return _context.ContentBlocks.AddRangeAsync(blocks, cancellationToken);
-    }
-
-    public void ArchiveRange(IEnumerable<ContentBlock> blocks)
-    {
-        _context.ContentBlocks.UpdateRange(blocks);
     }
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
