@@ -94,6 +94,8 @@ public static class CollectionSchemaValidator
         switch (field.Type)
         {
             case FieldType.Text:
+            case FieldType.ShortText:
+            case FieldType.LongText:
             case FieldType.RichText:
             case FieldType.Url:
                 if (value is not JsonValue tv || tv.GetValueKind() != System.Text.Json.JsonValueKind.String)

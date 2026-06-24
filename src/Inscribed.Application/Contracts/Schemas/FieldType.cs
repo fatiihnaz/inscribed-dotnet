@@ -9,5 +9,7 @@ public enum FieldType
     StringArray,
     Date,
     Number,
-    ObjectArray
+    ObjectArray,
+    ShortText,
+    LongText
 }

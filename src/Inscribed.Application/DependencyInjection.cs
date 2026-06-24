@@ -12,7 +12,6 @@ public static class DependencyInjection
         services.AddScoped<IContentService, ContentService>();
         services.AddScoped<ICollectionService, CollectionService>();
 
-        services.AddSingleton<ICollectionPolicy, TeamsCollectionPolicy>();
         services.AddSingleton<ICollectionPolicy, NewsCollectionPolicy>();
         services.AddSingleton<ICollectionPolicyResolver, CollectionPolicyResolver>();
 

@@ -8,5 +8,7 @@ public enum BlockType
     Link,
     List,
     Date,
-    DataSource
+    DataSource,
+    ShortText,
+    LongText
 }
