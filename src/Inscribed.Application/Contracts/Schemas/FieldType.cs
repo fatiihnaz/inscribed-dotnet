@@ -8,5 +8,6 @@ public enum FieldType
     Url,
     StringArray,
     Date,
-    Number
+    Number,
+    ObjectArray
 }

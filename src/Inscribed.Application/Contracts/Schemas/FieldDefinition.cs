@@ -8,5 +8,6 @@ public sealed record FieldDefinition(
     string? Help = null,
     bool ReadOnly = false,
     bool Filterable = false,
-    IReadOnlyList<string>? Options = null
+    IReadOnlyList<string>? Options = null,
+    IReadOnlyList<FieldDefinition>? ItemFields = null
 );

@@ -8,29 +8,50 @@ public static class CollectionSchemaValidator
 {
     public static JsonObject ValidateAndStrip(CollectionSchema schema, JsonNode data, bool isDraft = false)
     {
-        if (data is not JsonObject incoming)
-            throw new ValidationException(["Data must be a JSON object."]);
-
         var errors = new List<string>();
-        var result = new JsonObject();
-        var fieldsByName = schema.Fields.ToDictionary(f => f.Name, StringComparer.Ordinal);
+        var result = ValidateObject(schema.Fields, data, isDraft, errors, path: null);
 
-        foreach (var field in schema.Fields)
+        if (errors.Count > 0)
+            throw new ValidationException(errors);
+
+        return result;
+    }
+
+    private static JsonObject ValidateObject(IReadOnlyList<FieldDefinition> fields, JsonNode? data, bool isDraft, List<string> errors, string? path)
+    {
+        var result = new JsonObject();
+
+        if (data is not JsonObject incoming)
+        {
+            errors.Add($"{(path is null ? "Data" : $"Field '{path}'")} must be a JSON object.");
+            return result;
+        }
+
+        var fieldsByName = fields.ToDictionary(f => f.Name, StringComparer.Ordinal);
+
+        foreach (var field in fields)
         {
             if (field.ReadOnly) continue;
 
+            var fieldPath = path is null ? field.Name : $"{path}.{field.Name}";
             var hasValue = incoming.TryGetPropertyValue(field.Name, out var value) && value is not null;
 
             if (!hasValue)
             {
                 if (field.Required && !isDraft)
-                    errors.Add($"Field '{field.Name}' is required.");
+                    errors.Add($"Field '{fieldPath}' is required.");
+                continue;
+            }
+
+            if (field.Type == FieldType.ObjectArray)
+            {
+                result[field.Name] = ValidateObjectArray(field, value!, isDraft, errors, fieldPath);
                 continue;
             }
 
             if (!IsValidForType(value!, field, out var typeError))
             {
-                errors.Add($"Field '{field.Name}': {typeError}");
+                errors.Add($"Field '{fieldPath}': {typeError}");
                 continue;
             }
 
@@ -40,13 +61,30 @@ public static class CollectionSchemaValidator
         foreach (var prop in incoming)
         {
             if (!fieldsByName.ContainsKey(prop.Key))
-                errors.Add($"Unknown field '{prop.Key}'.");
+            {
+                var unknownPath = path is null ? prop.Key : $"{path}.{prop.Key}";
+                errors.Add($"Unknown field '{unknownPath}'.");
+            }
         }
 
-        if (errors.Count > 0)
-            throw new ValidationException(errors);
-
         return result;
+    }
+
+    private static JsonArray ValidateObjectArray(FieldDefinition field, JsonNode value, bool isDraft, List<string> errors, string path)
+    {
+        var cleaned = new JsonArray();
+
+        if (value is not JsonArray arr)
+        {
+            errors.Add($"Field '{path}': expected array.");
+            return cleaned;
+        }
+
+        var itemFields = field.ItemFields ?? [];
+        for (var i = 0; i < arr.Count; i++)
+            cleaned.Add(ValidateObject(itemFields, arr[i], isDraft, errors, $"{path}[{i}]"));
+
+        return cleaned;
     }
 
     private static bool IsValidForType(JsonNode value, FieldDefinition field, out string error)
