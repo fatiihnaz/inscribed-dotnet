@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Inscribed.Application\Inscribed.Application.csproj" />
     <ProjectReference Include="..\Inscribed.Infrastructure\Inscribed.Infrastructure.csproj" />
+    <ProjectReference Include="..\Inscribed.Auth\Inscribed.Auth.csproj" />
   </ItemGroup>
 
 </Project>
