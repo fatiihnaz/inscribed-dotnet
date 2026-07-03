@@ -10,9 +10,11 @@ services:
       - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
       - ConnectionStrings__Redis=redis:6379
       - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS}
-      # Auth (JWT) — configure once your identity provider is ready:
-      # - Jwt__Authority=
-      # - Jwt__Audience=
+      # Auth (self-hosted IdP):
+      # - Auth__Issuer=https://cms.example.com
+      # - Auth__Google__ClientId=
+      # - Auth__Google__ClientSecret=
+      # - Auth__Admin__BootstrapAdmins__0=admin@example.com
     depends_on:
       db:
         condition: service_healthy

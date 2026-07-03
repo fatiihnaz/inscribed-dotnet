@@ -39,13 +39,6 @@ public sealed class ServiceKey : Entity
 
     public bool IsActive(DateTime utcNow) => RevokedAt is null && (ExpiresAt is null || ExpiresAt > utcNow);
 
-    public void MarkUsed(DateTime utcNow)
-    {
-        LastUsedAt = utcNow;
-        UpdatedAt = utcNow;
-        Version += 1;
-    }
-
     public void Revoke(DateTime utcNow)
     {
         if (RevokedAt is not null)

@@ -2,6 +2,8 @@ using Inscribed.Auth.Authentication;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Services;
 using Inscribed.Auth.Storage;
+using Inscribed.Auth.Storage.Repositories;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -37,8 +39,28 @@ public static class DependencyInjection
         services.AddSingleton<ISigningKeyStore, SigningKeyStore>();
         services.AddSingleton<IJwtIssuer, JwtIssuer>();
 
+        services.AddHttpClient();
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IClientRepository, ClientRepository>();
+        services.AddScoped<IMembershipRepository, MembershipRepository>();
+        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IGoogleOAuthClient, GoogleOAuthClient>();
+        services.AddScoped<IGoogleLoginService, GoogleLoginService>();
+        services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+        services.AddScoped<IServiceKeyRepository, ServiceKeyRepository>();
+        services.AddScoped<IServiceKeyService, ServiceKeyService>();
+
         services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddAuthentication(InscribedAuthSchemes.PolicyScheme)
+            .AddPolicyScheme(InscribedAuthSchemes.PolicyScheme, InscribedAuthSchemes.PolicyScheme, options =>
+            {
+                options.ForwardDefaultSelector = context =>
+                    ServiceTokenLocator.Locate(context.Request) is null
+                        ? JwtBearerDefaults.AuthenticationScheme
+                        : InscribedAuthSchemes.ServiceToken;
+            })
+            .AddJwtBearer()
+            .AddScheme<AuthenticationSchemeOptions, ServiceTokenAuthenticationHandler>(InscribedAuthSchemes.ServiceToken, null);
 
         return services;
     }
