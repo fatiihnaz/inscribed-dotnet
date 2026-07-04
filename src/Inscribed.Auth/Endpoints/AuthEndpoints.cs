@@ -80,6 +80,8 @@ public static class AuthEndpoints
             return Results.NoContent();
         });
 
+        app.MapInscribedAdminEndpoints();
+
         return app;
     }
 

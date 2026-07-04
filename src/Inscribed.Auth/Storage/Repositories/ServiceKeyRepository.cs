@@ -6,6 +6,8 @@ namespace Inscribed.Auth.Storage.Repositories;
 public interface IServiceKeyRepository
 {
     Task<IReadOnlyList<ServiceKey>> GetByPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ServiceKey>> GetByClientKeyAsync(string clientKey, CancellationToken cancellationToken = default);
+    Task<ServiceKey?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     void Add(ServiceKey key);
     Task TouchLastUsedAsync(Guid id, DateTime utcNow, CancellationToken cancellationToken = default);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
@@ -22,6 +24,12 @@ internal sealed class ServiceKeyRepository : IServiceKeyRepository
 
     public async Task<IReadOnlyList<ServiceKey>> GetByPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default) =>
         await _context.ServiceKeys.Where(x => x.KeyPrefix == keyPrefix).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ServiceKey>> GetByClientKeyAsync(string clientKey, CancellationToken cancellationToken = default) =>
+        await _context.ServiceKeys.Where(x => x.ClientKey == clientKey).OrderByDescending(x => x.CreatedAt).ToListAsync(cancellationToken);
+
+    public Task<ServiceKey?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        _context.ServiceKeys.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
     public void Add(ServiceKey key) => _context.ServiceKeys.Add(key);
 

@@ -12,6 +12,8 @@ public sealed class AuthOptions
 
     public int RefreshTokenDays { get; set; } = 30;
 
+    public string AdminClientKey { get; set; } = "admin";
+
     public AuthCookieOptions Cookie { get; set; } = new();
 
     public GoogleAuthOptions Google { get; set; } = new();
@@ -42,4 +44,6 @@ public sealed class AdminAuthOptions
     public string Role { get; set; } = "cms:admin";
 
     public string[] BootstrapAdmins { get; set; } = [];
+
+    public string[] ConsoleOrigins { get; set; } = [];
 }

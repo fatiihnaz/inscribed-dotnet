@@ -11,6 +11,9 @@ internal sealed class SigningKeyStore : ISigningKeyStore
 {
     private const string Algorithm = "RS256";
     private const int RsaKeySize = 2048;
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MinReloadInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RetiredKeyGrace = TimeSpan.FromHours(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly object _gate = new();
@@ -22,21 +25,75 @@ internal sealed class SigningKeyStore : ISigningKeyStore
 
     public IEnumerable<SecurityKey> GetValidationKeys(string? kid = null)
     {
-        var keys = Load().ValidationKeys;
-        return kid is null ? keys : keys.Where(k => string.Equals(k.KeyId, kid, StringComparison.Ordinal));
+        var state = Load();
+        if (kid is null)
+        {
+            return state.ValidationKeys;
+        }
+
+        var matches = Filter(state, kid);
+        return matches.Count > 0 ? matches : Filter(Reload(), kid);
     }
 
     public IReadOnlyList<JwksKey> GetPublicJwks() => Load().Jwks;
+
+    public string Rotate()
+    {
+        lock (_gate)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+            var now = DateTime.UtcNow;
+            foreach (var key in db.SigningKeys.Where(k => k.IsActive).ToList())
+            {
+                key.Deactivate(now, now + RetiredKeyGrace);
+            }
+
+            var generated = Generate();
+            db.SigningKeys.Add(generated);
+            db.SaveChanges();
+
+            _state = null;
+            return generated.Kid;
+        }
+    }
+
+    private static List<SecurityKey> Filter(State state, string kid) =>
+        state.ValidationKeys.Where(k => string.Equals(k.KeyId, kid, StringComparison.Ordinal)).ToList();
+
     private State Load()
     {
-        if (_state is { } cached)
+        if (_state is { } cached && cached.LoadedAtUtc > DateTime.UtcNow - CacheTtl)
         {
             return cached;
         }
 
         lock (_gate)
         {
-            return _state ??= Build();
+            if (_state is { } current && current.LoadedAtUtc > DateTime.UtcNow - CacheTtl)
+            {
+                return current;
+            }
+
+            var built = Build();
+            _state = built;
+            return built;
+        }
+    }
+
+    private State Reload()
+    {
+        lock (_gate)
+        {
+            if (_state is { } current && current.LoadedAtUtc > DateTime.UtcNow - MinReloadInterval)
+            {
+                return current;
+            }
+
+            var built = Build();
+            _state = built;
+            return built;
         }
     }
 
@@ -47,7 +104,7 @@ internal sealed class SigningKeyStore : ISigningKeyStore
 
         var now = DateTime.UtcNow;
         var keys = db.SigningKeys.Where(k => k.ExpiresAt == null || k.ExpiresAt > now).OrderByDescending(k => k.CreatedAt).ToList();
-        
+
         if (!keys.Any(k => k.IsActive))
         {
             var generated = Generate();
@@ -79,7 +136,7 @@ internal sealed class SigningKeyStore : ISigningKeyStore
             }
         }
 
-        return new State(activeCredentials!, validationKeys, jwks);
+        return new State(activeCredentials!, validationKeys, jwks, DateTime.UtcNow);
     }
 
     private static SigningKey Generate()
@@ -95,5 +152,6 @@ internal sealed class SigningKeyStore : ISigningKeyStore
     private sealed record State(
         SigningCredentials ActiveCredentials,
         IReadOnlyList<SecurityKey> ValidationKeys,
-        IReadOnlyList<JwksKey> Jwks);
+        IReadOnlyList<JwksKey> Jwks,
+        DateTime LoadedAtUtc);
 }

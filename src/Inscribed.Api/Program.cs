@@ -21,6 +21,11 @@ builder.Services.AddAuthorizationBuilder()
     {
         policy.RequireAuthenticatedUser();
         policy.RequireRole("cms:access");
+    })
+    .AddPolicy("AdminAccess", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole(builder.Configuration["Auth:Admin:Role"] ?? "cms:admin");
     });
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -52,6 +57,7 @@ using (var scope = app.Services.CreateScope())
     authDb.Database.Migrate();
 
     scope.ServiceProvider.GetRequiredService<ISigningKeyStore>().GetPublicJwks();
+    scope.ServiceProvider.SeedInscribedAuth();
 }
 
 app.UseExceptionHandler();

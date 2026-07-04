@@ -41,7 +41,7 @@ public sealed class SigningKey : Entity
         };
     }
 
-    public void Deactivate(DateTime utcNow)
+    public void Deactivate(DateTime utcNow, DateTime? expiresAt = null)
     {
         if (!IsActive)
         {
@@ -49,6 +49,7 @@ public sealed class SigningKey : Entity
         }
 
         IsActive = false;
+        ExpiresAt = expiresAt ?? ExpiresAt;
         UpdatedAt = utcNow;
         Version += 1;
     }

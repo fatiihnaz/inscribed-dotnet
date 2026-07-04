@@ -34,10 +34,12 @@ internal sealed record ValidatedServiceKey(Guid Id, string ClientKey, string Nam
 internal sealed class ServiceKeyService : IServiceKeyService
 {
     private readonly IServiceKeyRepository _serviceKeys;
+    private readonly IClientRepository _clients;
 
-    public ServiceKeyService(IServiceKeyRepository serviceKeys)
+    public ServiceKeyService(IServiceKeyRepository serviceKeys, IClientRepository clients)
     {
         _serviceKeys = serviceKeys;
+        _clients = clients;
     }
 
     public async Task<CreatedServiceKey> CreateAsync(string clientKey, string name, IReadOnlyList<string> roles, DateTime? expiresAt = null, CancellationToken cancellationToken = default)
@@ -75,6 +77,12 @@ internal sealed class ServiceKeyService : IServiceKeyService
             }
 
             if (!candidate.IsActive(now))
+            {
+                return null;
+            }
+
+            var client = await _clients.GetByKeyAsync(candidate.ClientKey, cancellationToken);
+            if (client is null || !client.IsActive)
             {
                 return null;
             }

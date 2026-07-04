@@ -8,6 +8,7 @@ public interface IUserRepository
     Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<User?> GetByGoogleSubjectAsync(string googleSubject, CancellationToken cancellationToken = default);
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<User>> GetAllAsync(CancellationToken cancellationToken = default);
     void Add(User user);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
@@ -29,6 +30,9 @@ internal sealed class UserRepository : IUserRepository
 
     public Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default) =>
         _context.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
+
+    public async Task<IReadOnlyList<User>> GetAllAsync(CancellationToken cancellationToken = default) =>
+        await _context.Users.OrderByDescending(x => x.CreatedAt).ToListAsync(cancellationToken);
 
     public void Add(User user) => _context.Users.Add(user);
 

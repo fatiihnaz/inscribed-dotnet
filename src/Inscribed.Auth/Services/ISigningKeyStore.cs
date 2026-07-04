@@ -10,6 +10,8 @@ public interface ISigningKeyStore
     IEnumerable<SecurityKey> GetValidationKeys(string? kid = null);
 
     IReadOnlyList<JwksKey> GetPublicJwks();
+
+    string Rotate();
 }
 
 public sealed record JwksKey(
