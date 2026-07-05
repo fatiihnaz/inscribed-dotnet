@@ -5,6 +5,7 @@ COPY Inscribed.sln ./
 COPY src/Inscribed.Domain/Inscribed.Domain.csproj              src/Inscribed.Domain/
 COPY src/Inscribed.Application/Inscribed.Application.csproj    src/Inscribed.Application/
 COPY src/Inscribed.Infrastructure/Inscribed.Infrastructure.csproj src/Inscribed.Infrastructure/
+COPY src/Inscribed.Auth/Inscribed.Auth.csproj                  src/Inscribed.Auth/
 COPY src/Inscribed.Api/Inscribed.Api.csproj                    src/Inscribed.Api/
 
 RUN dotnet restore
