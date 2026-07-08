@@ -66,10 +66,19 @@ internal sealed class RefreshTokenService : IRefreshTokenService
             return null;
         }
 
+        RefreshToken? successor = null;
         if (current.RevokedAt is not null)
         {
-            await _refreshTokens.RevokeFamilyAsync(current.FamilyId, now, cancellationToken);
-            return null;
+            var leeway = TimeSpan.FromSeconds(_options.ReuseLeewaySeconds);
+            successor = current.ReplacedByHash is null || current.RevokedAt <= now - leeway
+                ? null
+                : await _refreshTokens.GetByHashAsync(current.ReplacedByHash, cancellationToken);
+
+            if (successor is null || successor.RevokedAt is not null)
+            {
+                await _refreshTokens.RevokeFamilyAsync(current.FamilyId, now, cancellationToken);
+                return null;
+            }
         }
 
         if (current.ExpiresAt <= now)
@@ -89,6 +98,7 @@ internal sealed class RefreshTokenService : IRefreshTokenService
         var (raw, hash) = NewToken();
         var expires = now.AddDays(_options.RefreshTokenDays);
         current.Revoke(now, hash);
+        successor?.Revoke(now, hash);
         _refreshTokens.Add(RefreshToken.Issue(user.Id, current.ClientKey, hash, expires, now, current.FamilyId));
 
         try

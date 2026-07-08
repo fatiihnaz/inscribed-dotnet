@@ -12,6 +12,8 @@ public sealed class AuthOptions
 
     public int RefreshTokenDays { get; set; } = 30;
 
+    public int ReuseLeewaySeconds { get; set; } = 30;
+
     public string AdminClientKey { get; set; } = "admin";
 
     public AuthCookieOptions Cookie { get; set; } = new();
