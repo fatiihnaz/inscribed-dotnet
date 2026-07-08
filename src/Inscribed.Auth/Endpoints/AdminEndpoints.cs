@@ -66,7 +66,11 @@ public static class AdminEndpoints
             }
 
             var now = DateTime.UtcNow;
-            client.Update(request.Name, request.AllowedRedirectOrigins ?? [], now);
+            client.Update(
+                request.Name,
+                request.AllowedRedirectOrigins ?? [],
+                request.AllowAnonymousContentRead ?? client.AllowAnonymousContentRead,
+                now);
             if (request.IsActive is { } isActive)
             {
                 client.SetActive(isActive, now);
@@ -189,6 +193,7 @@ public static class AdminEndpoints
         client.Key,
         client.Name,
         client.AllowedRedirectOrigins,
+        client.AllowAnonymousContentRead,
         client.IsActive,
         client.CreatedAt,
     };
@@ -196,7 +201,7 @@ public static class AdminEndpoints
 
 public sealed record CreateClientRequest(string Key, string Name, string[]? AllowedRedirectOrigins);
 
-public sealed record UpdateClientRequest(string Name, string[]? AllowedRedirectOrigins, bool? IsActive);
+public sealed record UpdateClientRequest(string Name, string[]? AllowedRedirectOrigins, bool? IsActive, bool? AllowAnonymousContentRead);
 
 public sealed record UpsertMembershipRequest(string Email, string[]? Roles);
 

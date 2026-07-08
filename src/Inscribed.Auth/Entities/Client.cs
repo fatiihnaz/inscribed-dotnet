@@ -7,6 +7,7 @@ public sealed class Client : Entity
     public string Key { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public string[] AllowedRedirectOrigins { get; private set; } = [];
+    public bool AllowAnonymousContentRead { get; private set; }
     public bool IsActive { get; private set; }
 
     private Client() { }
@@ -29,12 +30,13 @@ public sealed class Client : Entity
         };
     }
 
-    public void Update(string name, IEnumerable<string> allowedRedirectOrigins, DateTime utcNow)
+    public void Update(string name, IEnumerable<string> allowedRedirectOrigins, bool allowAnonymousContentRead, DateTime utcNow)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         Name = name.Trim();
         AllowedRedirectOrigins = allowedRedirectOrigins?.ToArray() ?? [];
+        AllowAnonymousContentRead = allowAnonymousContentRead;
         UpdatedAt = utcNow;
         Version += 1;
     }
