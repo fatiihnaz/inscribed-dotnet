@@ -22,7 +22,7 @@ public static class CollectionEndpoints
 
         group.MapGet("/schema", (CollectionKey key, HttpContext context, ICollectionService service) =>
         {
-            var isEditor = context.User.IsInRole("cms:access");
+            var isEditor = context.User.CanReadCms();
             if (!isEditor && !service.AllowsAnonymousRead(key))
                 return Results.Unauthorized();
 
@@ -33,7 +33,7 @@ public static class CollectionEndpoints
 
         group.MapGet("/", async (CollectionKey key, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
-            var isEditor = context.User.IsInRole("cms:access");
+            var isEditor = context.User.CanReadCms();
             if (!isEditor && !service.AllowsAnonymousRead(key))
                 return Results.Unauthorized();
 
@@ -75,7 +75,7 @@ public static class CollectionEndpoints
 
         group.MapGet("/{slug}", async (CollectionKey key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
-            var isEditor = context.User.IsInRole("cms:access");
+            var isEditor = context.User.CanReadCms();
             if (!isEditor && !service.AllowsAnonymousRead(key))
                 return Results.Unauthorized();
 

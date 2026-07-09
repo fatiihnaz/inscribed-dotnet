@@ -22,6 +22,11 @@ builder.Services.AddAuthorizationBuilder()
         policy.RequireAuthenticatedUser();
         policy.RequireRole("cms:access");
     })
+    .AddPolicy("CmsRead", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole("cms:read", "cms:access");
+    })
     .AddPolicy("AdminAccess", policy =>
     {
         policy.RequireAuthenticatedUser();
