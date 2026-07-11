@@ -1,7 +1,6 @@
 using Inscribed.Api.Authentication;
 using Inscribed.Application.Contracts.Requests;
 using Inscribed.Application.Services;
-using Inscribed.Domain.Enums;
 
 namespace Inscribed.Api.Endpoints;
 
@@ -20,7 +19,7 @@ public static class CollectionEndpoints
 
         var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("CmsAccess");
 
-        group.MapGet("/schema", (CollectionKey key, HttpContext context, ICollectionService service) =>
+        group.MapGet("/schema", (string key, HttpContext context, ICollectionService service) =>
         {
             var isEditor = context.User.CanReadCms();
             if (!isEditor && !service.AllowsAnonymousRead(key))
@@ -31,7 +30,7 @@ public static class CollectionEndpoints
             return Results.Ok(schema);
         }).AllowAnonymous();
 
-        group.MapGet("/", async (CollectionKey key, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapGet("/", async (string key, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var isEditor = context.User.CanReadCms();
             if (!isEditor && !service.AllowsAnonymousRead(key))
@@ -53,17 +52,17 @@ public static class CollectionEndpoints
             return Results.Ok(result);
         }).AllowAnonymous();
 
-        group.MapPost("/", async (CollectionKey key, CreateCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPost("/", async (string key, CreateCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var updatedBy = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(updatedBy))
                 return Results.Unauthorized();
 
             var response = await service.CreateAutoSlugAsync(key, request, context.User, updatedBy, ct);
-            return Results.Created($"/cms/collections/{key}/{response.Slug}", response);
+            return Results.Created($"/cms/collections/{response.CollectionKey}/{response.Slug}", response);
         });
 
-        group.MapPost("/drafts", async (CollectionKey key, SaveNewDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPost("/drafts", async (string key, SaveNewDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var userId = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(userId))
@@ -73,7 +72,7 @@ public static class CollectionEndpoints
             return Results.NoContent();
         });
 
-        group.MapGet("/{slug}", async (CollectionKey key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapGet("/{slug}", async (string key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var isEditor = context.User.CanReadCms();
             if (!isEditor && !service.AllowsAnonymousRead(key))
@@ -86,7 +85,7 @@ public static class CollectionEndpoints
             return item is null ? Results.NotFound() : Results.Ok(item);
         }).AllowAnonymous();
 
-        group.MapPut("/{slug}", async (CollectionKey key, string slug, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPut("/{slug}", async (string key, string slug, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var updatedBy = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(updatedBy))
@@ -96,7 +95,7 @@ public static class CollectionEndpoints
             return Results.Ok(response);
         });
 
-        group.MapPut("/{slug}/draft", async (CollectionKey key, string slug, SaveDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPut("/{slug}/draft", async (string key, string slug, SaveDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var userId = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(userId))

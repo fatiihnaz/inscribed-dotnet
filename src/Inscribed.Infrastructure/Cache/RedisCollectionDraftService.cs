@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Caching.Distributed;
 using Inscribed.Application.Contracts.Services;
-using Inscribed.Domain.Enums;
 
 namespace Inscribed.Infrastructure.Cache;
 
@@ -17,11 +16,11 @@ public sealed class RedisCollectionDraftService : ICollectionDraftService
         _cache = cache;
     }
 
-    private static string ItemKey(CollectionKey key, string slug, string userId) => $"cd:item:{key}:{slug}:{userId}";
+    private static string ItemKey(string key, string slug, string userId) => $"cd:item:{key}:{slug}:{userId}";
 
-    private static string NewKey(CollectionKey key, string userId) => $"cd:new:{key}:{userId}";
+    private static string NewKey(string key, string userId) => $"cd:new:{key}:{userId}";
 
-    public async Task SaveItemDraftAsync(CollectionKey key, string slug, string userId, JsonObject data, CancellationToken cancellationToken = default)
+    public async Task SaveItemDraftAsync(string key, string slug, string userId, JsonObject data, CancellationToken cancellationToken = default)
     {
         var payload = new CollectionDraft(slug, data, DateTime.UtcNow);
         var json = JsonSerializer.Serialize(payload);
@@ -31,16 +30,16 @@ public sealed class RedisCollectionDraftService : ICollectionDraftService
         }, cancellationToken);
     }
 
-    public async Task<CollectionDraft?> GetItemDraftAsync(CollectionKey key, string slug, string userId, CancellationToken cancellationToken = default)
+    public async Task<CollectionDraft?> GetItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default)
     {
         var json = await _cache.GetStringAsync(ItemKey(key, slug, userId), cancellationToken);
         return json is null ? null : JsonSerializer.Deserialize<CollectionDraft>(json);
     }
 
-    public Task DeleteItemDraftAsync(CollectionKey key, string slug, string userId, CancellationToken cancellationToken = default)
+    public Task DeleteItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default)
         => _cache.RemoveAsync(ItemKey(key, slug, userId), cancellationToken);
 
-    public async Task SaveNewDraftAsync(CollectionKey key, string userId, string? slug, JsonObject data, CancellationToken cancellationToken = default)
+    public async Task SaveNewDraftAsync(string key, string userId, string? slug, JsonObject data, CancellationToken cancellationToken = default)
     {
         var payload = new CollectionDraft(slug, data, DateTime.UtcNow);
         var json = JsonSerializer.Serialize(payload);
@@ -50,12 +49,12 @@ public sealed class RedisCollectionDraftService : ICollectionDraftService
         }, cancellationToken);
     }
 
-    public async Task<CollectionDraft?> GetNewDraftAsync(CollectionKey key, string userId, CancellationToken cancellationToken = default)
+    public async Task<CollectionDraft?> GetNewDraftAsync(string key, string userId, CancellationToken cancellationToken = default)
     {
         var json = await _cache.GetStringAsync(NewKey(key, userId), cancellationToken);
         return json is null ? null : JsonSerializer.Deserialize<CollectionDraft>(json);
     }
 
-    public Task DeleteNewDraftAsync(CollectionKey key, string userId, CancellationToken cancellationToken = default)
+    public Task DeleteNewDraftAsync(string key, string userId, CancellationToken cancellationToken = default)
         => _cache.RemoveAsync(NewKey(key, userId), cancellationToken);
 }

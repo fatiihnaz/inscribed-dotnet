@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Inscribed.Application.Contracts.Repositories;
 using Inscribed.Domain.Entities;
-using Inscribed.Domain.Enums;
 
 namespace Inscribed.Infrastructure.Storage.Repositories;
 
@@ -15,7 +14,7 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
         _context = context;
     }
 
-    public async Task<IReadOnlyList<CollectionItem>> ListAsync(CollectionKey key, bool includeArchived = false, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CollectionItem>> ListAsync(string key, bool includeArchived = false, CancellationToken cancellationToken = default)
     {
         var query = _context.CollectionItems.AsQueryable();
 
@@ -29,7 +28,7 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
     }
 
     public async Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
-        CollectionKey key,
+        string key,
         JsonObject? filterContainment,
         int offset,
         int limit,
@@ -54,7 +53,7 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
         return (items, total);
     }
 
-    public async Task<CollectionItem?> GetBySlugAsync(CollectionKey key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default)
+    public async Task<CollectionItem?> GetBySlugAsync(string key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default)
     {
         var query = _context.CollectionItems.AsQueryable();
 

@@ -1,11 +1,10 @@
 using System.Text.Json.Nodes;
-using Inscribed.Domain.Enums;
 
 namespace Inscribed.Domain.Entities;
 
 public sealed class CollectionItem : Entity
 {
-    public CollectionKey CollectionKey { get; private set; }
+    public string CollectionKey { get; private set; } = default!;
     public string Slug { get; private set; } = default!;
     public JsonNode Data { get; private set; } = default!;
     public string UpdatedBy { get; private set; } = default!;
@@ -15,12 +14,13 @@ public sealed class CollectionItem : Entity
     private CollectionItem() { }
 
     public static CollectionItem Create(
-        CollectionKey collectionKey,
+        string collectionKey,
         string slug,
         JsonNode data,
         string updatedBy,
         DateTime utcNow)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(collectionKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(slug);
         ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
         ArgumentNullException.ThrowIfNull(data);

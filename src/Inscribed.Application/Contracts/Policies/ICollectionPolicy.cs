@@ -1,13 +1,12 @@
 using System.Security.Claims;
 using System.Text.Json.Nodes;
 using Inscribed.Application.Contracts.Schemas;
-using Inscribed.Domain.Enums;
 
 namespace Inscribed.Application.Contracts.Policies;
 
 public interface ICollectionPolicy
 {
-    CollectionKey Key { get; }
+    string Key { get; }
 
     CollectionSchema Schema { get; }
 

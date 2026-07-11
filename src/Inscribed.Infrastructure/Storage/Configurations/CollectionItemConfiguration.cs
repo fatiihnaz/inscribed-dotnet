@@ -14,7 +14,7 @@ internal sealed class CollectionItemConfiguration : IEntityTypeConfiguration<Col
 
         builder.Property(x => x.Id).ValueGeneratedOnAdd().HasDefaultValueSql("gen_random_uuid()").HasColumnOrder(0);
 
-        builder.Property(x => x.CollectionKey).IsRequired().HasConversion<string>().HasMaxLength(32).HasColumnOrder(1);
+        builder.Property(x => x.CollectionKey).IsRequired().HasMaxLength(32).HasColumnOrder(1);
 
         builder.Property(x => x.Slug).IsRequired().HasMaxLength(256);
 
