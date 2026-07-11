@@ -5,7 +5,6 @@ using Inscribed.Application.Contracts.Responses;
 using Inscribed.Application.Contracts.Services;
 using Inscribed.Application.Services.Helpers;
 using Inscribed.Domain.Entities;
-using Inscribed.Domain.Enums;
 using Inscribed.Domain.Exceptions;
 
 namespace Inscribed.Application.Services;
@@ -66,7 +65,7 @@ public sealed class ContentService : IContentService
 
         var blocks = await _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
 
-        var dataBlocks = blocks.Where(block => block.BlockType == BlockType.DataSource)
+        var blockResponses = blocks
             .Select(block => new BlockResponse(
                 BlockPath: block.BlockPath,
                 BlockType: block.BlockType.ToString(),
@@ -76,7 +75,7 @@ public sealed class ContentService : IContentService
                 Data: null))
             .ToList();
 
-        return new ContentResponse(normalizedSlug, dataBlocks);
+        return new ContentResponse(normalizedSlug, blockResponses);
     }
 
     public async Task<UpdatePageResponse> UpdatePageAsync(string clientId, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default)
