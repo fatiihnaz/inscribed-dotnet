@@ -3,8 +3,6 @@
 [Ll]og/
 [Ll]ogs/
 
-**/Migrations/
-
 appsettings.*.json
 !appsettings.Development.json
 *.env
