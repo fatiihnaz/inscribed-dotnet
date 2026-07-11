@@ -110,7 +110,8 @@ internal sealed class RefreshTokenService : IRefreshTokenService
             return null;
         }
 
-        var access = _jwtIssuer.Issue(user.Id.ToString(), current.ClientKey, roles, user.Email);
+        var displayName = string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email : user.DisplayName;
+        var access = _jwtIssuer.Issue(user.Id.ToString(), current.ClientKey, roles, displayName, user.Email);
         return new RefreshResult(access, raw, expires);
     }
 

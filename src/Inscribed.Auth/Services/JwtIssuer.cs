@@ -16,7 +16,7 @@ internal sealed class JwtIssuer : IJwtIssuer
         _options = options.Value;
     }
 
-    public AccessToken Issue(string subject, string clientKey, IReadOnlyList<string> roles, string username)
+    public AccessToken Issue(string subject, string clientKey, IReadOnlyList<string> roles, string displayName, string email)
     {
         var now = DateTime.UtcNow;
         var expires = now.AddMinutes(_options.AccessTokenMinutes);
@@ -33,7 +33,8 @@ internal sealed class JwtIssuer : IJwtIssuer
             {
                 ["sub"] = subject,
                 ["azp"] = clientKey,
-                ["preferred_username"] = username,
+                ["name"] = displayName,
+                ["email"] = email,
                 ["roles"] = roles.ToArray(),
             },
         };

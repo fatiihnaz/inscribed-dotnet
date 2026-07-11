@@ -70,11 +70,11 @@ internal sealed class ServiceTokenAuthenticationHandler : AuthenticationHandler<
         {
             new("sub", $"service:{key.Id}"),
             new("azp", key.ClientKey),
-            new("preferred_username", key.Name),
+            new("name", key.Name),
         };
         claims.AddRange(key.Roles.Select(role => new Claim("roles", role)));
 
-        var identity = new ClaimsIdentity(claims, Scheme.Name, "preferred_username", "roles");
+        var identity = new ClaimsIdentity(claims, Scheme.Name, "name", "roles");
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
     }
 }

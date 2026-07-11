@@ -28,7 +28,7 @@ internal sealed class ConfigureJwtBearerOptions : IConfigureNamedOptions<JwtBear
             ValidAudience = _options.Audience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            NameClaimType = "preferred_username",
+            NameClaimType = "name",
             RoleClaimType = "roles",
             IssuerSigningKeyResolver = (_, _, kid, _) => _keys.GetValidationKeys(kid),
         };
