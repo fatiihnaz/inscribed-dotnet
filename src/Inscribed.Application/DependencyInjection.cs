@@ -15,11 +15,27 @@ public static class DependencyInjection
         services.AddScoped<IContentService, ContentService>();
         services.AddScoped<ICollectionService, CollectionService>();
 
-        var configuredPath = configuration["Collections:Path"];
-        var policies = FileCollectionPolicyLoader.Load(configuredPath ?? DefaultCollectionsPath, required: configuredPath is not null);
+        var credentialNames = configuration.GetSection("Enrichment:Auth").GetChildren()
+            .Select(c => c.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var policy in policies)
-            services.AddSingleton<ICollectionPolicy>(policy);
+        var configuredPath = configuration["Collections:Path"];
+        var definitions = FileCollectionPolicyLoader.Load(configuredPath ?? DefaultCollectionsPath, required: configuredPath is not null, credentialNames);
+
+        foreach (var definition in definitions)
+        {
+            if (definition.Enrichments.Count == 0)
+            {
+                services.AddSingleton<ICollectionPolicy>(new FileCollectionPolicy(definition, []));
+                continue;
+            }
+
+            services.AddSingleton<ICollectionPolicy>(sp =>
+            {
+                var factory = sp.GetRequiredService<ICollectionEnricherFactory>();
+                return new FileCollectionPolicy(definition, definition.Enrichments.Select(factory.Create).ToArray());
+            });
+        }
 
         services.AddSingleton<ICollectionPolicyResolver, CollectionPolicyResolver>();
 

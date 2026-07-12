@@ -1,14 +1,23 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Inscribed.Application.Contracts.Policies;
 using Inscribed.Application.Contracts.Schemas;
 
 namespace Inscribed.Application.Services.Policies;
 
 public static class FileCollectionPolicyLoader
 {
+    private const int DefaultCacheSeconds = 300;
+    private const int MaxCacheSeconds = 86_400;
+
     private static readonly Regex KeyPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
     private static readonly Regex FieldNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex PlaceholderPattern = new(@"\{([^{}]*)\}", RegexOptions.Compiled);
+    private static readonly Regex ResponsePathPattern = new(@"^[A-Za-z0-9_]+(\[\d+\])?(\.[A-Za-z0-9_]+(\[\d+\])?)*$", RegexOptions.Compiled);
+
+    private static readonly FieldType[] PlaceholderFieldTypes =
+        [FieldType.Text, FieldType.ShortText, FieldType.LongText, FieldType.Url, FieldType.Number, FieldType.Bool, FieldType.Date];
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -18,7 +27,7 @@ public static class FileCollectionPolicyLoader
         AllowTrailingCommas = true,
     };
 
-    public static IReadOnlyList<FileCollectionPolicy> Load(string directory, bool required)
+    public static IReadOnlyList<FileCollectionDefinition> Load(string directory, bool required, IReadOnlyCollection<string> credentialNames)
     {
         if (!Directory.Exists(directory))
         {
@@ -29,7 +38,7 @@ public static class FileCollectionPolicyLoader
         }
 
         var errors = new List<string>();
-        var policies = new List<FileCollectionPolicy>();
+        var definitions = new List<FileCollectionDefinition>();
         var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var file in Directory.GetFiles(directory, "*.json").OrderBy(Path.GetFileName, StringComparer.Ordinal))
@@ -54,10 +63,10 @@ public static class FileCollectionPolicyLoader
             }
 
             var fileErrors = new List<string>();
-            var policy = BuildPolicy(document, fileName, fileErrors);
+            var definition = BuildDefinition(document, fileName, credentialNames, fileErrors);
 
-            if (policy is not null && sources.TryGetValue(policy.Key, out var otherFile))
-                fileErrors.Add($"duplicate collection key '{policy.Key}', already defined in '{otherFile}'");
+            if (definition is not null && sources.TryGetValue(definition.Key, out var otherFile))
+                fileErrors.Add($"duplicate collection key '{definition.Key}', already defined in '{otherFile}'");
 
             if (fileErrors.Count > 0)
             {
@@ -65,8 +74,8 @@ public static class FileCollectionPolicyLoader
                 continue;
             }
 
-            sources.Add(policy!.Key, fileName);
-            policies.Add(policy);
+            sources.Add(definition!.Key, fileName);
+            definitions.Add(definition);
         }
 
         if (errors.Count > 0)
@@ -74,10 +83,14 @@ public static class FileCollectionPolicyLoader
                 $"Invalid collection definition(s) in '{directory}':{Environment.NewLine}" +
                 string.Join(Environment.NewLine, errors.Select(e => $"  - {e}")));
 
-        return policies;
+        return definitions;
     }
 
-    private static FileCollectionPolicy? BuildPolicy(CollectionDefinitionDocument document, string fileName, List<string> errors)
+    private static FileCollectionDefinition? BuildDefinition(
+        CollectionDefinitionDocument document,
+        string fileName,
+        IReadOnlyCollection<string> credentialNames,
+        List<string> errors)
     {
         if (string.IsNullOrWhiteSpace(document.Key))
             errors.Add("'key' is required");
@@ -121,16 +134,108 @@ public static class FileCollectionPolicyLoader
             }
         }
 
+        var enrichments = BuildEnrichments(document.Enrich, fields, credentialNames, errors);
+
         if (errors.Count > 0 || fields is null)
             return null;
 
-        return new FileCollectionPolicy(
+        return new FileCollectionDefinition(
             document.Key!,
             new CollectionSchema(fields),
             slugSource,
             slugSourceField,
             document.AllowAnonymousRead,
-            fileName);
+            fileName,
+            enrichments);
+    }
+
+    private static List<EnrichmentDefinition> BuildEnrichments(
+        List<EnrichmentDocument>? documents,
+        List<FieldDefinition>? fields,
+        IReadOnlyCollection<string> credentialNames,
+        List<string> errors)
+    {
+        if (documents is null || documents.Count == 0)
+            return [];
+
+        var enrichments = new List<EnrichmentDefinition>(documents.Count);
+        var mapTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < documents.Count; i++)
+        {
+            var document = documents[i];
+            var entryErrorsBefore = errors.Count;
+            var entryRef = $"'enrich[{i}]'";
+
+            if (string.IsNullOrWhiteSpace(document.Url))
+            {
+                errors.Add($"{entryRef}: 'url' is required");
+            }
+            else
+            {
+                foreach (Match match in PlaceholderPattern.Matches(document.Url))
+                {
+                    var placeholder = match.Groups[1].Value;
+
+                    if (placeholder == "slug")
+                        continue;
+
+                    if (fields is null)
+                        continue;
+
+                    var field = fields.FirstOrDefault(f => f.Name == placeholder);
+
+                    if (field is null)
+                        errors.Add($"{entryRef}: url placeholder '{{{placeholder}}}' references unknown field '{placeholder}' (names are case-sensitive)");
+                    else if (!PlaceholderFieldTypes.Contains(field.Type))
+                        errors.Add($"{entryRef}: url placeholder '{{{placeholder}}}' must reference a scalar field, not {field.Type}");
+                }
+
+                var probeUrl = PlaceholderPattern.Replace(document.Url, "x");
+
+                if (!Uri.TryCreate(probeUrl, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                    errors.Add($"{entryRef}: 'url' must be an absolute http(s) URL");
+            }
+
+            if (document.Auth is { } auth && !credentialNames.Contains(auth))
+                errors.Add($"{entryRef}: references unknown credential '{auth}' (define it under Enrichment:Auth)");
+
+            var cacheSeconds = document.CacheSeconds ?? DefaultCacheSeconds;
+
+            if (cacheSeconds is < 0 or > MaxCacheSeconds)
+                errors.Add($"{entryRef}: 'cacheSeconds' must be between 0 and {MaxCacheSeconds}");
+
+            if (document.Map is null || document.Map.Count == 0)
+            {
+                errors.Add($"{entryRef}: 'map' must contain at least one target field");
+            }
+            else
+            {
+                foreach (var (target, path) in document.Map)
+                {
+                    if (!FieldNamePattern.IsMatch(target))
+                        errors.Add($"{entryRef}: map target '{target}' must start with a letter or underscore and contain only letters, digits, and underscores");
+                    else if (fields is not null && fields.Any(f => string.Equals(f.Name, target, StringComparison.OrdinalIgnoreCase)))
+                        errors.Add($"{entryRef}: map target '{target}' collides with a schema field");
+                    else if (!mapTargets.Add(target))
+                        errors.Add($"{entryRef}: map target '{target}' is already produced by another enrich entry");
+
+                    if (string.IsNullOrWhiteSpace(path) || !ResponsePathPattern.IsMatch(path))
+                        errors.Add($"{entryRef}: map path '{path}' for '{target}' must be a dotted path like 'owner.avatar_url' or 'topics[0]'");
+                }
+            }
+
+            if (errors.Count > entryErrorsBefore)
+                continue;
+
+            enrichments.Add(new EnrichmentDefinition(
+                document.Url!,
+                document.Auth,
+                cacheSeconds,
+                document.Map!));
+        }
+
+        return enrichments;
     }
 
     private static List<FieldDefinition>? BuildFields(List<FieldDefinitionDocument>? documents, string path, List<string> errors)

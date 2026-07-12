@@ -5,6 +5,7 @@ using Npgsql;
 using Inscribed.Application.Contracts.Repositories;
 using Inscribed.Application.Contracts.Services;
 using Inscribed.Infrastructure.Cache;
+using Inscribed.Infrastructure.Enrichment;
 using Inscribed.Infrastructure.Storage;
 using Inscribed.Infrastructure.Storage.Repositories;
 
@@ -31,6 +32,8 @@ public static class DependencyInjection
         services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);
         services.AddScoped<IDraftService, RedisDraftService>();
         services.AddScoped<ICollectionDraftService, RedisCollectionDraftService>();
+
+        services.AddCollectionEnrichment(configuration);
 
         return services;
     }

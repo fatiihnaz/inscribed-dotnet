@@ -8,6 +8,15 @@ public sealed class CollectionDefinitionDocument
     public bool AllowAnonymousRead { get; init; }
     public SlugDefinitionDocument? Slug { get; init; }
     public List<FieldDefinitionDocument>? Fields { get; init; }
+    public List<EnrichmentDocument>? Enrich { get; init; }
+}
+
+public sealed class EnrichmentDocument
+{
+    public string? Url { get; init; }
+    public string? Auth { get; init; }
+    public int? CacheSeconds { get; init; }
+    public Dictionary<string, string>? Map { get; init; }
 }
 
 public sealed class SlugDefinitionDocument

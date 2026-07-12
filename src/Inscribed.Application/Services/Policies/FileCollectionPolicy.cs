@@ -7,41 +7,42 @@ namespace Inscribed.Application.Services.Policies;
 
 public sealed class FileCollectionPolicy : ICollectionPolicy
 {
-    private readonly string? _slugSourceField;
+    private readonly FileCollectionDefinition _definition;
+    private readonly IReadOnlyList<ICollectionEnricher> _enrichers;
 
-    public FileCollectionPolicy(
-        string key,
-        CollectionSchema schema,
-        SlugSource slugSource,
-        string? slugSourceField,
-        bool allowAnonymousRead,
-        string sourceFile)
+    public FileCollectionPolicy(FileCollectionDefinition definition, IReadOnlyList<ICollectionEnricher> enrichers)
     {
-        Key = key;
-        Schema = schema;
-        SlugSource = slugSource;
-        _slugSourceField = slugSourceField;
-        AllowAnonymousRead = allowAnonymousRead;
-        SourceFile = sourceFile;
+        _definition = definition;
+        _enrichers = enrichers;
     }
 
-    public string Key { get; }
+    public string Key => _definition.Key;
 
-    public CollectionSchema Schema { get; }
+    public CollectionSchema Schema => _definition.Schema;
 
-    public SlugSource SlugSource { get; }
+    public SlugSource SlugSource => _definition.SlugSource;
 
-    public bool AllowAnonymousRead { get; }
+    public bool AllowAnonymousRead => _definition.AllowAnonymousRead;
 
-    public string SourceFile { get; }
+    public string SourceFile => _definition.SourceFile;
 
     public bool CanEdit(ClaimsPrincipal user, string slug) => true;
 
     public bool CanCreate(ClaimsPrincipal user) => true;
 
     public string? GetSlugSourceValue(JsonNode data)
-        => _slugSourceField is not null && data[_slugSourceField] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+        => _definition.SlugSourceField is { } field && data[field] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-    public Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default)
-        => Task.FromResult(data);
+    public async Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default)
+    {
+        if (_enrichers.Count == 0)
+            return data;
+
+        var enriched = data.DeepClone();
+
+        foreach (var enricher in _enrichers)
+            enriched = await enricher.EnrichAsync(slug, enriched, cancellationToken);
+
+        return enriched;
+    }
 }
