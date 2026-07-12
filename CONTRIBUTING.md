@@ -72,7 +72,7 @@ src/
     Exceptions/                #   ValidationException, NotFoundException, ConcurrencyConflictException
   Inscribed.Application/       # CMS business logic; knows nothing about auth or storage engines
     Contracts/                 #   requests/responses, repository + draft-service interfaces
-    Contracts/Policies/        #   ICollectionPolicy: the collection extension point
+    Contracts/Policies/        #   ICollectionPolicy + ICollectionEnricher: the collection extension points
     Contracts/Schemas/         #   CollectionSchema, FieldDefinition, FieldType, SlugSource
     Services/                  #   ContentService (sync/publish/drafts), CollectionService
     Services/Helpers/          #   schema validation, filter parsing, slug normalization/generation
@@ -80,6 +80,7 @@ src/
   Inscribed.Infrastructure/    # storage implementations for the Application contracts
     Storage/                   #   CmsDbContext, EF configurations, repositories
     Cache/                     #   Redis draft services
+    Enrichment/                #   HttpEnricher, outbound credentials (API key, OAuth2 client credentials)
     Migrations/                #   CmsDbContext migrations
   Inscribed.Auth/              # self-contained identity provider module
     Entities/                  #   User, Client, Membership, RefreshToken, ServiceKey, SigningKey
@@ -88,7 +89,7 @@ src/
     Endpoints/                 #   /auth/*, /admin/*, /.well-known/jwks.json
     Storage/                   #   AuthDbContext (auth_* tables), repositories, own migrations
   Inscribed.Api/               # composition root: Program.cs, policies, CMS endpoints, error handler
-docs/                          # in-depth guides (auth.md: identity internals and rationale)
+docs/                          # in-depth guides (auth.md: identity, collections.md: definitions and enrichment)
 ```
 
 ## Build and run
@@ -146,7 +147,7 @@ There is **no test project yet**; adding one (xUnit under `tests/`) is welcome a
 
 Drop a JSON definition file into the collections directory (`Collections:Path`, default `collections/`; use [collections/news.json](collections/news.json) as the template) and restart the API. Definitions are validated strictly at startup by [FileCollectionPolicyLoader](src/Inscribed.Application/Services/Policies/FileCollectionPolicyLoader.cs); a broken file aborts boot with an error naming the file.
 
-No migration is needed: items of all collections share the `CollectionItem` table, and endpoints/validation pick the new collection up from the loaded policy. `ICollectionPolicy` remains the internal seam behind the loader; behavior that a JSON file cannot express (custom permissions, enrichment) belongs there.
+No migration is needed: items of all collections share the `CollectionItem` table, and endpoints/validation pick the new collection up from the loaded policy. External data can be pulled in declaratively with an `enrich` block; the definition reference, enrichment semantics and credential setup live in [docs/collections.md](docs/collections.md). `ICollectionPolicy` and `ICollectionEnricher` remain the internal seams for behavior a JSON file cannot express.
 
 ### Add a field type
 
