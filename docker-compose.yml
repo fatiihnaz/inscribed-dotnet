@@ -16,6 +16,7 @@ services:
       - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
       - Auth__Admin__BootstrapAdmins__0=${BOOTSTRAP_ADMIN_EMAIL}
       - Auth__Admin__ConsoleOrigins__0=${ADMIN_CONSOLE_ORIGIN:-http://localhost:3001}
+      - Database__MigrateOnStartup=${DB_MIGRATE_ON_STARTUP:-true}
     volumes:
       - ./collections:/app/collections
     depends_on:
@@ -24,6 +25,22 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  # Opt-in one-shot for multi-instance deploys: set DB_MIGRATE_ON_STARTUP=false, then
+  # `docker compose --profile migrate run --rm api-migrate` before rolling out api replicas.
+  api-migrate:
+    profiles: ["migrate"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - RUN_MIGRATIONS_AND_EXIT=true
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
+      - ConnectionStrings__Redis=redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   db:
     image: postgres:17-alpine
