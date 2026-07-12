@@ -16,6 +16,8 @@ services:
       - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
       - Auth__Admin__BootstrapAdmins__0=${BOOTSTRAP_ADMIN_EMAIL}
       - Auth__Admin__ConsoleOrigins__0=${ADMIN_CONSOLE_ORIGIN:-http://localhost:3001}
+    volumes:
+      - ./collections:/app/collections
     depends_on:
       db:
         condition: service_healthy

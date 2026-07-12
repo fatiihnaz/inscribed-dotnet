@@ -68,7 +68,7 @@ To iterate against a real consumer (an editor panel or site), add its origin to 
 src/
   Inscribed.Domain/            # entity base + CMS entities, enums, typed exceptions; no dependencies
     Entities/                  #   ContentBlock, CollectionItem, Entity (Id/CreatedAt/UpdatedAt/Version)
-    Enums/                     #   BlockType, CollectionKey
+    Enums/                     #   BlockType
     Exceptions/                #   ValidationException, NotFoundException, ConcurrencyConflictException
   Inscribed.Application/       # CMS business logic; knows nothing about auth or storage engines
     Contracts/                 #   requests/responses, repository + draft-service interfaces
@@ -76,7 +76,7 @@ src/
     Contracts/Schemas/         #   CollectionSchema, FieldDefinition, FieldType, SlugSource
     Services/                  #   ContentService (sync/publish/drafts), CollectionService
     Services/Helpers/          #   schema validation, filter parsing, slug normalization/generation
-    Services/Policies/         #   concrete collection policies (NewsCollectionPolicy) + resolver
+    Services/Policies/         #   policy resolver + file-based collection loader and policy
   Inscribed.Infrastructure/    # storage implementations for the Application contracts
     Storage/                   #   CmsDbContext, EF configurations, repositories
     Cache/                     #   Redis draft services
@@ -144,11 +144,9 @@ There is **no test project yet**; adding one (xUnit under `tests/`) is welcome a
 
 ### Add a new collection
 
-1. Add the key to [CollectionKey](src/Inscribed.Domain/Enums/CollectionKey.cs).
-2. Implement `ICollectionPolicy` in `src/Inscribed.Application/Services/Policies/` (schema, `SlugSource`, `CanEdit`/`CanCreate`, `AllowAnonymousRead`, optional `EnrichAsync`); use [NewsCollectionPolicy](src/Inscribed.Application/Services/Policies/NewsCollectionPolicy.cs) as the template.
-3. Register it as a singleton in [Application/DependencyInjection.cs](src/Inscribed.Application/DependencyInjection.cs).
+Drop a JSON definition file into the collections directory (`Collections:Path`, default `collections/`; use [collections/news.json](collections/news.json) as the template) and restart the API. Definitions are validated strictly at startup by [FileCollectionPolicyLoader](src/Inscribed.Application/Services/Policies/FileCollectionPolicyLoader.cs); a broken file aborts boot with an error naming the file.
 
-No migration is needed: items of all collections share the `CollectionItem` table, and endpoints/validation pick the new collection up from the policy.
+No migration is needed: items of all collections share the `CollectionItem` table, and endpoints/validation pick the new collection up from the loaded policy. `ICollectionPolicy` remains the internal seam behind the loader; behavior that a JSON file cannot express (custom permissions, enrichment) belongs there.
 
 ### Add a field type
 

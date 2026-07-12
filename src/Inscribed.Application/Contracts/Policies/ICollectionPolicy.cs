@@ -12,13 +12,13 @@ public interface ICollectionPolicy
 
     SlugSource SlugSource { get; }
 
-    bool AllowAnonymousRead => false;
+    bool AllowAnonymousRead { get; }
 
     bool CanEdit(ClaimsPrincipal user, string slug);
 
-    bool CanCreate(ClaimsPrincipal user) => true;
+    bool CanCreate(ClaimsPrincipal user);
 
-    string? GetSlugSourceValue(JsonNode data) => null;
+    string? GetSlugSourceValue(JsonNode data);
 
     Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default);
 }

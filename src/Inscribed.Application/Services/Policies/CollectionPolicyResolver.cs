@@ -15,8 +15,19 @@ public sealed class CollectionPolicyResolver : ICollectionPolicyResolver
 
     public CollectionPolicyResolver(IEnumerable<ICollectionPolicy> policies)
     {
-        _policies = policies.ToDictionary(p => p.Key, StringComparer.OrdinalIgnoreCase);
+        _policies = new Dictionary<string, ICollectionPolicy>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var policy in policies)
+        {
+            if (_policies.TryGetValue(policy.Key, out var existing))
+                throw new InvalidOperationException($"Collection key '{policy.Key}' is defined by both {Describe(existing)} and {Describe(policy)}.");
+
+            _policies.Add(policy.Key, policy);
+        }
     }
+
+    private static string Describe(ICollectionPolicy policy)
+        => policy is FileCollectionPolicy file ? $"'{file.SourceFile}'" : policy.GetType().Name;
 
     public IReadOnlyCollection<ICollectionPolicy> All => _policies.Values;
 

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Inscribed.Api.Endpoints;
 using Inscribed.Api.Middleware;
 using Inscribed.Application;
+using Inscribed.Application.Services.Policies;
 using Inscribed.Auth;
 using Inscribed.Auth.Endpoints;
 using Inscribed.Auth.Services;
@@ -12,7 +13,7 @@ using Inscribed.Infrastructure.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddApplication();
+builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddInscribedAuth(builder.Configuration);
 
@@ -62,6 +63,7 @@ using (var scope = app.Services.CreateScope())
     authDb.Database.Migrate();
 
     scope.ServiceProvider.GetRequiredService<ISigningKeyStore>().GetPublicJwks();
+    scope.ServiceProvider.GetRequiredService<ICollectionPolicyResolver>();
     scope.ServiceProvider.SeedInscribedAuth();
 }
 
