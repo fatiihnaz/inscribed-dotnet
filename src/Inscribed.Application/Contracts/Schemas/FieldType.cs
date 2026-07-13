@@ -2,7 +2,6 @@ namespace Inscribed.Application.Contracts.Schemas;
 
 public enum FieldType
 {
-    Text,
     RichText,
     Bool,
     Url,
@@ -11,5 +10,6 @@ public enum FieldType
     Number,
     ObjectArray,
     ShortText,
-    LongText
+    LongText,
+    Image
 }

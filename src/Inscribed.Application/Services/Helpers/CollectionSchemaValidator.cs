@@ -6,6 +6,12 @@ namespace Inscribed.Application.Services.Helpers;
 
 public static class CollectionSchemaValidator
 {
+    private static readonly IReadOnlyList<FieldDefinition> ImageFields =
+    [
+        new FieldDefinition("src", FieldType.Url, "Src", Required: true),
+        new FieldDefinition("alt", FieldType.ShortText, "Alt", Required: true)
+    ];
+
     public static JsonObject ValidateAndStrip(CollectionSchema schema, JsonNode data, bool isDraft = false)
     {
         var errors = new List<string>();
@@ -46,6 +52,12 @@ public static class CollectionSchemaValidator
             if (field.Type == FieldType.ObjectArray)
             {
                 result[field.Name] = ValidateObjectArray(field, value!, isDraft, errors, fieldPath);
+                continue;
+            }
+
+            if (field.Type == FieldType.Image)
+            {
+                result[field.Name] = ValidateObject(ImageFields, value!, isDraft, errors, fieldPath);
                 continue;
             }
 
@@ -93,7 +105,6 @@ public static class CollectionSchemaValidator
 
         switch (field.Type)
         {
-            case FieldType.Text:
             case FieldType.ShortText:
             case FieldType.LongText:
             case FieldType.RichText:

@@ -16,8 +16,7 @@ public static class FileCollectionPolicyLoader
     private static readonly Regex PlaceholderPattern = new(@"\{([^{}]*)\}", RegexOptions.Compiled);
     private static readonly Regex ResponsePathPattern = new(@"^[A-Za-z0-9_]+(\[\d+\])?(\.[A-Za-z0-9_]+(\[\d+\])?)*$", RegexOptions.Compiled);
 
-    private static readonly FieldType[] PlaceholderFieldTypes =
-        [FieldType.Text, FieldType.ShortText, FieldType.LongText, FieldType.Url, FieldType.Number, FieldType.Bool, FieldType.Date];
+    private static readonly FieldType[] PlaceholderFieldTypes = [FieldType.ShortText, FieldType.LongText, FieldType.Url, FieldType.Number, FieldType.Bool, FieldType.Date];
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -122,8 +121,8 @@ public static class FileCollectionPolicyLoader
 
                     if (source is null)
                         errors.Add($"'slug.from' references unknown field '{slug.From}'");
-                    else if (source.Type is not (FieldType.Text or FieldType.ShortText))
-                        errors.Add($"'slug.from' field '{slug.From}' must be of type Text or ShortText, not {source.Type}");
+                    else if (source.Type is not FieldType.ShortText)
+                        errors.Add($"'slug.from' field '{slug.From}' must be of type ShortText, not {source.Type}");
                     else
                         slugSourceField = source.Name;
                 }
