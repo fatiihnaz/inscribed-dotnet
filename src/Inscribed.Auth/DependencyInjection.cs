@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<IServiceKeyRepository, ServiceKeyRepository>();
         services.AddScoped<IServiceKeyService, ServiceKeyService>();
+        services.AddScoped<IAdminService, AdminService>();
 
         services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
         services.AddAuthentication(InscribedAuthSchemes.PolicyScheme)
