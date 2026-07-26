@@ -19,7 +19,7 @@ Thanks for wanting to work on Inscribed. This document explains how the codebase
 
 ## Philosophy
 
-1. **Content code never depends on auth.** `Inscribed.Application` and `Inscribed.Infrastructure` have no compile-time reference to `Inscribed.Auth`; the only bridge is the claim contract (`sub`, `azp`, `roles`, `name`, `email`) read in the API layer. The tell you are violating it: adding a `using Inscribed.Auth…` anywhere outside `Inscribed.Api`.
+1. **Content code never depends on auth.** `Inscribed.Application` and `Inscribed.Infrastructure` have no compile-time reference to `Inscribed.Auth`; the only bridge is the claim contract (`sub`, `azp`, `roles`, `name`, `email`) read in the API layer. The tell you are violating it: adding a `using Inscribed.Auth…` outside a composition root. `Inscribed.Api` and `Inscribed.Cli` are the composition roots, and both reference the auth module by design.
 
 2. **`Program.cs` is the only place that wires things together.** Authorization policies, CORS, DI composition and endpoint mapping live in the composition root. The tell: an authorization policy or role name being defined inside a module instead of `Program.cs`.
 
@@ -89,6 +89,7 @@ src/
     Endpoints/                 #   /auth/*, /admin/*, /.well-known/jwks.json
     Storage/                   #   AuthDbContext (auth_* tables), repositories, own migrations
   Inscribed.Api/               # composition root: Program.cs, policies, CMS endpoints, error handler
+  Inscribed.Cli/               # composition root: admin console over the same AdminService, no HTTP
 docs/                          # in-depth guides (auth.md: identity, collections.md: definitions and enrichment)
 ```
 
@@ -97,6 +98,7 @@ docs/                          # in-depth guides (auth.md: identity, collections
 ```sh
 dotnet build Inscribed.sln
 dotnet run --project src/Inscribed.Api          # from source
+dotnet run --project src/Inscribed.Cli -- help  # admin console (needs only ConnectionStrings__Default)
 docker compose up -d --build                    # full stack as deployed
 ```
 
@@ -127,7 +129,7 @@ Rules of thumb: never edit an already-committed migration (add a new one); keep 
 
 ## Testing
 
-There is **no test project yet**; adding one (xUnit under `tests/`) is welcome and overdue. The components most in need of coverage, in order: `ContentService.SyncAsync` (the reconcile matrix: create/archive/restore/prune), `CollectionSchemaValidator`, `RefreshTokenService` (rotation, reuse detection, leeway), `JwtIssuer`/`SigningKeyStore` (rotation grace), and `ServiceKeyService`. Until then, changes are verified by exercising the flow end to end; the [smoke-test chain in docs/auth.md](docs/auth.md#smoke-test-chain) is the reference sequence.
+There is **no test project yet**; adding one (xUnit under `tests/`) is welcome and overdue. The components most in need of coverage, in order: `ContentService.SyncAsync` (the reconcile matrix: create/archive/restore/prune), `CollectionSchemaValidator`, `RefreshTokenService` (rotation, reuse detection, leeway), `JwtIssuer`/`SigningKeyStore` (rotation grace), `ServiceKeyService`, and `AdminService` (now the single implementation behind both `/admin/*` and the CLI). Until then, changes are verified by exercising the flow end to end; the [smoke-test chain in docs/auth.md](docs/auth.md#smoke-test-chain) is the reference sequence.
 
 ## Code style and conventions
 
@@ -162,6 +164,15 @@ No migration is needed: items of all collections share the `CollectionItem` tabl
 2. Guard with an existing policy (`CmsRead` for reads, `CmsAccess` for writes, `AdminAccess` for administration); a new kind of permission means a new policy in `Program.cs`, not a role check in the endpoint.
 3. Read identity only via [UserPrincipalExtensions](src/Inscribed.Api/Authentication/UserPrincipalExtensions.cs) (`GetClientId`, `GetUserSub`) and pass values into the service; services never touch `HttpContext`.
 4. Set cache headers explicitly for anonymous-readable endpoints (`Vary: Authorization`, `public` vs `private, no-store`).
+
+### Add an admin operation
+
+1. Add the method to `IAdminService` and implement it in [AdminService](src/Inscribed.Auth/Services/AdminService.cs), throwing `ValidationException`, `NotFoundException` or `ConflictException` for business failures.
+2. Map it in [AdminEndpoints](src/Inscribed.Auth/Endpoints/AdminEndpoints.cs): the handler reads the request, calls the one service method, and shapes the response. It never decides status codes for failures; [GlobalExceptionHandler](src/Inscribed.Api/Middleware/GlobalExceptionHandler.cs) translates the exception.
+3. Add the verb to [AdminCommands](src/Inscribed.Cli/AdminCommands.cs) and its line to the usage text, so the CLI and the API stay in step.
+4. Update the admin table in the README (both the endpoint list and the CLI list).
+
+Both surfaces call the same service on purpose: the security-sensitive decisions (duplicate protection, granting roles, minting keys) must have exactly one implementation.
 
 ### Add an auth entity or column
 

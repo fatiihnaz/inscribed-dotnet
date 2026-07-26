@@ -29,6 +29,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
   - [Anonymous public reads and caching](#anonymous-public-reads-and-caching)
 - [Architecture](#architecture)
 - [API surface](#api-surface)
+- [Admin CLI](#admin-cli)
 - [Configuration reference](#configuration-reference)
 - [Error responses](#error-responses)
 - [Further reading](#further-reading)
@@ -102,6 +103,8 @@ This is the **self-hosted Docker path** ending with content synced and readable 
    ```
 
 6. Create a tenant, mint a deploy key, and sync a first page (replace `$TOKEN` with the access token):
+
+   > **Tip:** steps 5 and 6 exist because `/admin/*` needs an admin token. With the .NET SDK installed you can skip the browser and the devtools console entirely: the [admin CLI](#admin-cli) performs the same operations straight against the database, with no token at all.
 
    ```sh
    curl -X POST http://localhost:5000/admin/clients \
@@ -227,11 +230,12 @@ For public sites there is a third read path that needs **no credential at all**:
 
 ## Architecture
 
-Five projects, one dependency rule: **content code never depends on auth**. The only thing the CMS knows about identity is a four-claim contract.
+Six projects, one dependency rule: **content code never depends on auth**. The only thing the CMS knows about identity is a four-claim contract.
 
 ```mermaid
 flowchart TD
     Api["Inscribed.Api<br/>(composition root: DI, policies, endpoints)"]
+    Cli["Inscribed.Cli<br/>(admin console)"]
     App["Inscribed.Application<br/>(CMS business logic)"]
     Infra["Inscribed.Infrastructure<br/>(CmsDbContext, Redis drafts)"]
     Auth["Inscribed.Auth<br/>(IdP: entities, AuthDbContext, /auth + /admin)"]
@@ -240,6 +244,7 @@ flowchart TD
     Api --> App
     Api --> Infra
     Api --> Auth
+    Cli --> Auth
     App --> Domain
     Infra --> App
     Auth --> Domain
@@ -361,6 +366,47 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 | `GET`/`POST /admin/clients/{key}/service-keys` | list (prefix + metadata only) / create (raw key shown once) |
 | `DELETE /admin/clients/{key}/service-keys/{id}` | revoke a service key |
 | `POST /admin/signing-keys/rotate` | rotate the RS256 signing key (old key verifies for a 1 h grace) |
+
+## Admin CLI
+
+`Inscribed.Cli` is a console application covering every operation under `/admin/*`: tenants, memberships, service keys, and signing-key rotation. It connects to the same PostgreSQL database as the API and calls the same internal service the HTTP endpoints call, so the two surfaces cannot drift apart.
+
+It runs **below** the HTTP layer, which is the point: administration needs **no access token, no browser redirect and no exposed port**. That also removes the cold start problem, since the first tenant and the first service key can be created before anyone has ever logged in.
+
+Requirements: network access to PostgreSQL and a database whose migrations are already applied (start the API once, or run the `api-migrate` one-shot). Redis is not needed.
+
+From source, with the .NET SDK:
+
+```sh
+export ConnectionStrings__Default="Host=localhost;Port=5432;Database=inscribed_cms;Username=postgres;Password=…"
+dotnet run --project src/Inscribed.Cli -- client create --key my-site --name "My Site"
+```
+
+In Docker the CLI ships inside the same image as the API, so no SDK and no published database port are needed:
+
+```sh
+docker compose exec api dotnet Inscribed.Cli.dll client list          # inside the running API container
+docker compose --profile admin run --rm admin client list             # one-shot, works while the API is down
+```
+
+| Command | Purpose |
+|---|---|
+| `user list` | users, with their Google link and active state |
+| `client list` | tenants, with active state and anonymous-read flag |
+| `client create --key --name [--origins a,b]` | create a tenant |
+| `client update --key --name [--origins a,b] [--active] [--anonymous-read]` | update a tenant; omitted flags keep their current value |
+| `membership set --client --email [--roles a,b]` | set a user's roles on a tenant (**replaces** the existing roles) |
+| `membership remove --client --email` | remove a membership |
+| `service-key list --client` | keys with prefix, roles and state; never the secret |
+| `service-key create --client --name [--roles a,b] [--expires date]` | mint a key |
+| `service-key revoke --client --id` | revoke a key immediately |
+| `signing-key rotate` | rotate the RS256 signing key |
+
+The raw service key is printed **alone on stdout** and its "shown once" warning on stderr, so `… service-key create … > key.txt` captures exactly the secret. Exit codes: `0` success, `1` the operation was rejected (unknown client, duplicate key, missing user), `2` a usage error.
+
+Memberships can only be set for users that already exist, and users are created on first Google login; the CLI reports this rather than pre-provisioning an account. A rotated signing key reaches a running API within its five-minute key cache, and the previous key keeps verifying for a one-hour grace, so rotation never invalidates tokens mid-flight.
+
+> **Note:** the CLI deliberately bypasses the HTTP authorization layer, so anyone who can reach the database with these credentials holds full administrative power. Treat the connection string as an admin credential and keep it off shared machines.
 
 ## Configuration reference
 

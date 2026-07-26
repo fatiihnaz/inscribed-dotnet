@@ -42,6 +42,22 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Admin console: `docker compose --profile admin run --rm admin client list`.
+  # Reaches the database over the compose network, so it works with 5432 unpublished
+  # and before anyone has logged in.
+  admin:
+    profiles: ["admin"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["dotnet", "Inscribed.Cli.dll"]
+    environment:
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   db:
     image: postgres:17-alpine
     environment:

@@ -7,12 +7,18 @@ COPY src/Inscribed.Application/Inscribed.Application.csproj    src/Inscribed.App
 COPY src/Inscribed.Infrastructure/Inscribed.Infrastructure.csproj src/Inscribed.Infrastructure/
 COPY src/Inscribed.Auth/Inscribed.Auth.csproj                  src/Inscribed.Auth/
 COPY src/Inscribed.Api/Inscribed.Api.csproj                    src/Inscribed.Api/
+COPY src/Inscribed.Cli/Inscribed.Cli.csproj                    src/Inscribed.Cli/
 
 RUN dotnet restore
 
 COPY src/ src/
 
 RUN dotnet publish src/Inscribed.Api/Inscribed.Api.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore
+
+RUN dotnet publish src/Inscribed.Cli/Inscribed.Cli.csproj \
     -c Release \
     -o /app/publish \
     --no-restore
