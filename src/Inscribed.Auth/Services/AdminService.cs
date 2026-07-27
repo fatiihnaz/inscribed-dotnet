@@ -15,6 +15,7 @@ public interface IAdminService
     Task<AdminOverview> GetOverviewAsync(CancellationToken cancellationToken = default);
     Task<Client> CreateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, CancellationToken cancellationToken = default);
     Task<Client> UpdateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, bool? isActive, bool? allowAnonymousContentRead, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<MembershipEntry>> ListMembershipsAsync(string clientKey, CancellationToken cancellationToken = default);
     Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? capabilities, CancellationToken cancellationToken = default);
     Task RemoveMembershipAsync(string clientKey, string email, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ServiceKey>> ListServiceKeysAsync(string clientKey, CancellationToken cancellationToken = default);
@@ -24,6 +25,8 @@ public interface IAdminService
 }
 
 public sealed record MembershipResult(Guid UserId, string Email, string ClientKey, string[] Capabilities);
+
+public sealed record MembershipEntry(Guid UserId, string Email, string DisplayName, bool IsActive, string[] Capabilities);
 
 public sealed record ClientDetail(Client Client, int ServiceKeys, int ActiveServiceKeys, int Members);
 
@@ -138,6 +141,37 @@ internal sealed class AdminService : IAdminService
 
         await _clients.SaveChangesAsync(cancellationToken);
         return client;
+    }
+
+    public async Task<IReadOnlyList<MembershipEntry>> ListMembershipsAsync(string clientKey, CancellationToken cancellationToken = default)
+    {
+        var client = await _clients.GetByKeyAsync(clientKey, cancellationToken);
+        if (client is null)
+        {
+            throw new NotFoundException($"Client '{clientKey}' not found.");
+        }
+
+        var memberships = await _memberships.GetByClientAsync(client.Id, cancellationToken);
+        if (memberships.Count == 0)
+        {
+            return [];
+        }
+
+        var users = (await _users.GetByIdsAsync([.. memberships.Select(membership => membership.UserId)], cancellationToken))
+            .ToDictionary(user => user.Id);
+
+        return
+        [
+            .. memberships
+                .Where(membership => users.ContainsKey(membership.UserId))
+                .Select(membership => new MembershipEntry(
+                    membership.UserId,
+                    users[membership.UserId].Email,
+                    users[membership.UserId].DisplayName,
+                    users[membership.UserId].IsActive,
+                    membership.Roles))
+                .OrderBy(entry => entry.Email, StringComparer.Ordinal)
+        ];
     }
 
     public async Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? capabilities, CancellationToken cancellationToken = default)

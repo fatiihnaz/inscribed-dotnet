@@ -1,5 +1,6 @@
 using System.Text;
 using Inscribed.Auth.Authorization;
+using Inscribed.Auth.Entities;
 using Inscribed.Auth.Services;
 using Inscribed.Domain.Exceptions;
 
@@ -10,6 +11,8 @@ internal sealed record CommandSpec(string Name, string Section, string Arguments
 internal static class AdminCommands
 {
     private const int MaxKeyLength = 64;
+
+    private const int StaleDays = 90;
 
     private static readonly Dictionary<char, char> TurkishLetters = new()
     {
@@ -29,6 +32,7 @@ internal static class AdminCommands
         new("client create", "TENANTS", "--key <key> --name <name> [--origins <a,b>]", ["--key", "--name", "--origins"]),
         new("client update", "TENANTS", "--key <key> --name <name> [--origins <a,b>] [--active <bool>] [--anonymous-read <bool>]", ["--key", "--name", "--origins", "--active", "--anonymous-read"]),
         new("user list", "PEOPLE", "", []),
+        new("membership list", "PEOPLE", "--client <key>", ["--client"]),
         new("membership set", "PEOPLE", "--client <key> --email <email> [--capabilities <a,b>]", ["--client", "--email", "--capabilities"]),
         new("membership remove", "PEOPLE", "--client <key> --email <email>", ["--client", "--email"]),
         new("service-key list", "KEYS", "--client <key>", ["--client"]),
@@ -113,6 +117,9 @@ internal static class AdminCommands
                 return;
             case ("client", "update"):
                 await UpdateClientAsync(admin, options);
+                return;
+            case ("membership", "list"):
+                await ListMembershipsAsync(admin, options);
                 return;
             case ("membership", "set"):
                 await SetMembershipAsync(admin, options);
@@ -258,6 +265,24 @@ internal static class AdminCommands
         Console.WriteLine($"Updated client '{client.Key}'.");
     }
 
+    private static async Task ListMembershipsAsync(IAdminService admin, CommandOptions options)
+    {
+        var clientKey = options.Require("client");
+        var table = new Table("EMAIL", "NAME", "STATE", "CAPABILITIES");
+        var members = await admin.ListMembershipsAsync(clientKey);
+
+        foreach (var member in members)
+        {
+            table.Add(
+                member.Email,
+                member.DisplayName,
+                member.IsActive ? Output.Green("active") : Output.Red("inactive"),
+                Output.Capabilities(member.Capabilities));
+        }
+
+        table.Write($"No memberships on '{clientKey}'.", Count(members.Count, "member"));
+    }
+
     private static async Task SetMembershipAsync(IAdminService admin, CommandOptions options)
     {
         var membership = await admin.UpsertMembershipAsync(options.Require("client"), options.Require("email"), options.GetList("capabilities"));
@@ -283,7 +308,7 @@ internal static class AdminCommands
     {
         var clientKey = options.Require("client");
         var now = DateTime.UtcNow;
-        var table = new Table("ID", "PREFIX", "NAME", "STATE", "CAPABILITIES");
+        var table = new Table("ID", "PREFIX", "NAME", "STATE", "AGE", "LAST USED", "CAPABILITIES");
         var keys = await admin.ListServiceKeysAsync(clientKey);
 
         foreach (var key in keys)
@@ -297,6 +322,8 @@ internal static class AdminCommands
                 $"{key.KeyPrefix}...",
                 key.Name,
                 state,
+                Since(key.CreatedAt, now),
+                LastUsed(key, now),
                 Output.Capabilities(key.Roles));
         }
 
@@ -305,6 +332,32 @@ internal static class AdminCommands
     }
 
     private static string ShortId(Guid id) => id.ToString()[..8];
+
+    private static string LastUsed(ServiceKey key, DateTime now)
+    {
+        if (key.LastUsedAt is not { } used)
+        {
+            return key.IsActive(now) ? Output.Yellow("never") : Output.Dim("never");
+        }
+
+        var text = Since(used, now);
+        return key.IsActive(now) && now - used > TimeSpan.FromDays(StaleDays) ? Output.Yellow(text) : text;
+    }
+
+    private static string Since(DateTime moment, DateTime now)
+    {
+        var elapsed = now - moment;
+
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "now",
+            { TotalHours: < 1 } => $"{(int)elapsed.TotalMinutes}m",
+            { TotalDays: < 1 } => $"{(int)elapsed.TotalHours}h",
+            { TotalDays: < 30 } => $"{(int)elapsed.TotalDays}d",
+            { TotalDays: < 365 } => $"{(int)(elapsed.TotalDays / 30)}mo",
+            _ => $"{(int)(elapsed.TotalDays / 365)}y",
+        };
+    }
 
     private static async Task CreateServiceKeyAsync(IAdminService admin, CommandOptions options)
     {

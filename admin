@@ -1,0 +1,8 @@
+#!/bin/sh
+# Runs the admin console inside the stack: through the live API container when it is
+# up (no container to create or clean up), otherwise as a one-shot that removes itself.
+if docker compose ps --status running --services 2>/dev/null | grep -qx api; then
+    exec docker compose exec api dotnet Inscribed.Cli.dll "$@"
+fi
+
+exec docker compose run --rm admin "$@"

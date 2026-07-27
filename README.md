@@ -377,7 +377,7 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 |---|---|
 | `GET /admin/users` | list users (created on first login) |
 | `GET`/`POST /admin/clients`, `PUT /admin/clients/{key}` | tenant CRUD incl. `allowAnonymousContentRead`, `isActive` |
-| `POST /admin/clients/{key}/memberships` | upsert a user's capabilities on a client |
+| `GET`/`POST /admin/clients/{key}/memberships` | list who can reach a client / upsert a user's capabilities |
 | `DELETE /admin/clients/{key}/memberships/{email}` | remove membership |
 | `GET`/`POST /admin/clients/{key}/service-keys` | list (prefix + metadata only) / create (raw key shown once) |
 | `DELETE /admin/clients/{key}/service-keys/{id}` | revoke a service key |
@@ -398,12 +398,21 @@ export ConnectionStrings__Default="Host=localhost;Port=5432;Database=inscribed_c
 dotnet run --project src/Inscribed.Cli -- client create --key my-site --name "My Site"
 ```
 
-In Docker the CLI ships inside the same image as the API, so no SDK and no published database port are needed:
+In Docker the CLI ships inside the same image as the API, so no SDK and no published database port are needed. The repository has a wrapper that picks the right way in:
+
+```sh
+./admin                     # the interactive console  (Windows: .\admin.ps1)
+./admin client list         # a single command
+```
+
+It runs the console **inside the live API container** when the stack is up, which creates no container at all, and falls back to a self-removing one-shot when the API is down. The underlying commands, if you prefer them explicit:
 
 ```sh
 docker compose exec api dotnet Inscribed.Cli.dll client list   # inside the running API container
 docker compose run --rm admin client list                      # one-shot, works while the API is down
 ```
+
+> **Note:** `docker compose run` removes its container when the process exits, so leaving an interactive session by closing the window instead of typing `exit` leaves it running. `docker compose ps` lists them and `docker rm -f <name>` clears them; the wrapper's `exec` path avoids the situation entirely.
 
 | Command | Purpose |
 |---|---|
@@ -413,9 +422,10 @@ docker compose run --rm admin client list                      # one-shot, works
 | `client show --key` | one tenant in full: origins, creation time, key and member counts |
 | `client create --key --name [--origins a,b]` | create a tenant |
 | `client update --key --name [--origins a,b] [--active] [--anonymous-read]` | update a tenant; omitted flags keep their current value |
+| `membership list --client` | who can reach a tenant, and with which capabilities |
 | `membership set --client --email [--capabilities a,b]` | set a user's capabilities on a tenant (**replaces** the existing set) |
 | `membership remove --client --email` | remove a membership |
-| `service-key list --client` | keys with prefix, capabilities and state; never the secret |
+| `service-key list --client` | keys with prefix, age, last use, capabilities and state; never the secret |
 | `service-key create --client --name --capabilities a,b [--expires date]` | mint a key; presets (`render`, `deploy`, `editor`) expand in place |
 | `service-key revoke --client --id` | revoke a key immediately; any unambiguous id prefix works |
 | `signing-key rotate` | rotate the RS256 signing key |
@@ -455,12 +465,15 @@ ink_live_7Kd93mQx1vNfR8sT2wYbE5hJ4uZaC6pL
 
 inscribed my-site> service-key list
 
-  ID        PREFIX               NAME           STATE   CAPABILITIES
-  ────────  ───────────────────  ─────────────  ──────  ────────────
-  9c2e4a71  ink_live_7Kd93mQ...  nightly-build  active  schema:sync
+  ID        PREFIX               NAME           STATE   AGE  LAST USED  CAPABILITIES
+  ────────  ───────────────────  ─────────────  ──────  ───  ─────────  ────────────
+  9c2e4a71  ink_live_7Kd93mQ...  nightly-build  active  2d   4h         schema:sync
+  0f1c7a22  ink_live_Qm4x8Lp...  old-ci         active  2y   never      content:read
 
-  1 key · 1 active
+  2 keys · 2 active
 ```
+
+A key's age and last use are the signals that decide whether it should still exist, so `service-key list` carries both as compact relative times. An active key that has gone unused for over ninety days, or has never been used at all, is highlighted: nothing enforces a rotation policy, but the list stops hiding the candidates for one.
 
 A tenant key is chosen, not generated: it appears in public content URLs (`/cms/public/my-site/data`), in the `azp` claim and in every consumer's configuration, so it has to stay readable and stable. The console derives a suggestion from the name (transliterating Turkish letters, so `Şirket Adı` becomes `sirket-adi`) and accepts it on an empty line. Keys are limited to lowercase letters, digits and hyphens, starting and ending with a letter or digit; anything else is rejected rather than silently rewritten.
 

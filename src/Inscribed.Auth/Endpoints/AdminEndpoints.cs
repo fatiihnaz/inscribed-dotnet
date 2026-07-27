@@ -44,6 +44,19 @@ public static class AdminEndpoints
             return Results.Ok(ToClientResponse(client));
         });
 
+        group.MapGet("/clients/{key}/memberships", async (string key, IAdminService admin, CancellationToken ct) =>
+        {
+            var members = await admin.ListMembershipsAsync(key, ct);
+            return Results.Ok(members.Select(member => new
+            {
+                Id = member.UserId,
+                member.Email,
+                member.DisplayName,
+                member.IsActive,
+                member.Capabilities,
+            }));
+        });
+
         group.MapPost("/clients/{key}/memberships", async (string key, UpsertMembershipRequest request, IAdminService admin, CancellationToken ct) =>
         {
             var membership = await admin.UpsertMembershipAsync(key, request.Email, request.Capabilities, ct);
