@@ -10,6 +10,8 @@ public sealed class Client : Entity
     public bool AllowAnonymousContentRead { get; private set; }
     public bool IsActive { get; private set; }
 
+    private const int MaxKeyLength = 64;
+
     private Client() { }
 
     public static Client Create(string key, string name, IEnumerable<string>? allowedRedirectOrigins, DateTime utcNow)
@@ -20,7 +22,7 @@ public sealed class Client : Entity
         return new Client
         {
             Id = Guid.NewGuid(),
-            Key = key.Trim(),
+            Key = ValidateKey(key),
             Name = name.Trim(),
             AllowedRedirectOrigins = allowedRedirectOrigins?.ToArray() ?? [],
             IsActive = true,
@@ -51,5 +53,30 @@ public sealed class Client : Entity
         IsActive = isActive;
         UpdatedAt = utcNow;
         Version += 1;
+    }
+
+    private static string ValidateKey(string key)
+    {
+        var trimmed = key.Trim();
+
+        if (trimmed.Length > MaxKeyLength)
+        {
+            throw new ArgumentException($"Client key must be at most {MaxKeyLength} characters.", nameof(key));
+        }
+
+        foreach (var character in trimmed)
+        {
+            if (!char.IsAsciiLetterLower(character) && !char.IsAsciiDigit(character) && character is not '-')
+            {
+                throw new ArgumentException("Client key may contain only lowercase letters, digits and hyphens.", nameof(key));
+            }
+        }
+
+        if (trimmed.StartsWith('-') || trimmed.EndsWith('-'))
+        {
+            throw new ArgumentException("Client key must start and end with a letter or digit.", nameof(key));
+        }
+
+        return trimmed;
     }
 }
