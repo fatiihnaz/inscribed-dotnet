@@ -10,7 +10,7 @@ public static class AdminEndpoints
 {
     public static IEndpointRouteBuilder MapInscribedAdminEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/admin").RequireAuthorization("AdminAccess");
+        var group = app.MapGroup("/admin").RequireAuthorization("TenantAdmin");
 
         group.MapGet("/users", async (IAdminService admin, CancellationToken ct) =>
         {

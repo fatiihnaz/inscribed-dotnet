@@ -46,7 +46,7 @@ public static class CmsEndpoints
 
             var response = await service.GetBySlugAsync(clientId, userId, slug, ct);
             return Results.Ok(response);
-        }).RequireAuthorization("CmsRead");
+        }).RequireAuthorization("ContentRead");
 
         group.MapGet("/data", async (string? slug, HttpContext context, IContentService service, CancellationToken ct) =>
         {
@@ -59,7 +59,7 @@ public static class CmsEndpoints
 
             var response = await service.GetDataBySlugAsync(clientId, slug, ct);
             return Results.Ok(response);
-        }).RequireAuthorization("CmsRead");
+        }).RequireAuthorization("ContentRead");
 
         group.MapPut("/content", async (HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>
         {
@@ -73,7 +73,7 @@ public static class CmsEndpoints
 
             var response = await service.UpdatePageAsync(clientId, request, updatedBy, ct);
             return Results.Ok(response);
-        }).RequireAuthorization("CmsAccess");
+        }).RequireAuthorization("ContentWrite");
 
         group.MapPut("/draft", async (HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>
         {
@@ -90,7 +90,7 @@ public static class CmsEndpoints
 
             await service.SaveDraftAsync(clientId, userId, request, ct);
             return Results.NoContent();
-        }).RequireAuthorization("CmsAccess");
+        }).RequireAuthorization("ContentWrite");
 
         group.MapPost("/sync", async (HttpContext context, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IContentService service, CancellationToken ct) =>
         {
@@ -103,7 +103,7 @@ public static class CmsEndpoints
 
             var response = await service.SyncAsync(clientId, manifests, SyncedByDeployPipeline, ct);
             return Results.Ok(response);
-        }).RequireAuthorization("CmsAccess");
+        }).RequireAuthorization("SchemaSync");
 
         return app;
     }

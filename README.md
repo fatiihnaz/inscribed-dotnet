@@ -321,31 +321,31 @@ Extension points, in the order you are likely to need them:
 
 ## API surface
 
-All routes return JSON; errors are RFC 7807 problem details (see [Error responses](#error-responses)). Policy column: **CmsRead** accepts `cms:read` or `cms:access`; **CmsAccess** requires `cms:access`; **Admin** requires `cms:admin`; **anon\*** means anonymous when the relevant opt-in flag/policy allows it, otherwise CmsRead.
+All routes return JSON; errors are RFC 7807 problem details (see [Error responses](#error-responses)). Policy column: **ContentRead** accepts `cms:read` or `cms:access`; **ContentWrite** and **SchemaSync** require `cms:access`; **TenantAdmin** requires `cms:admin` and a human principal; **anon\*** means anonymous when the relevant opt-in flag/policy allows it, otherwise ContentRead.
 
 **Content**
 
 | Method & path | Policy | Purpose |
 |---|---|---|
-| `GET /cms/content?slug=` | CmsRead | published blocks + caller's draft overlay |
-| `GET /cms/data?slug=` | CmsRead | published values only, no draft overlay |
+| `GET /cms/content?slug=` | ContentRead | published blocks + caller's draft overlay |
+| `GET /cms/data?slug=` | ContentRead | published values only, no draft overlay |
 | `GET /cms/public/{clientKey}/data?slug=` | anon\* | as above, credential-free, CDN-cacheable |
-| `PUT /cms/content` | CmsAccess | publish block values (optimistic concurrency) |
-| `PUT /cms/draft` | CmsAccess | save the caller's page draft |
-| `POST /cms/sync` | CmsAccess | whole-state manifest reconcile |
+| `PUT /cms/content` | ContentWrite | publish block values (optimistic concurrency) |
+| `PUT /cms/draft` | ContentWrite | save the caller's page draft |
+| `POST /cms/sync` | SchemaSync | whole-state manifest reconcile |
 
 **Collections**
 
 | Method & path | Policy | Purpose |
 |---|---|---|
-| `GET /cms/collections/me` | CmsAccess | collections the caller may create in, with schemas |
+| `GET /cms/collections/me` | ContentWrite | collections the caller may create in, with schemas |
 | `GET /cms/collections/{key}/schema` | anon\* | field schema of a collection |
 | `GET /cms/collections/{key}/?offset=&limit=&field=` | anon\* | paged, filterable listing |
 | `GET /cms/collections/{key}/{slug}` | anon\* | single item (+ caller's draft when signed in) |
-| `POST /cms/collections/{key}/` | CmsAccess | create item (auto-generated slug collections) |
-| `PUT /cms/collections/{key}/{slug}` | CmsAccess | upsert item (user-defined slug collections) / update |
-| `PUT /cms/collections/{key}/{slug}/draft` | CmsAccess | save item draft |
-| `POST /cms/collections/{key}/drafts` | CmsAccess | save draft for a not-yet-created item |
+| `POST /cms/collections/{key}/` | ContentWrite | create item (auto-generated slug collections) |
+| `PUT /cms/collections/{key}/{slug}` | ContentWrite | upsert item (user-defined slug collections) / update |
+| `PUT /cms/collections/{key}/{slug}/draft` | ContentWrite | save item draft |
+| `POST /cms/collections/{key}/drafts` | ContentWrite | save draft for a not-yet-created item |
 
 **Auth**
 

@@ -14,9 +14,9 @@ Everything the CMS reads from an authenticated request fits in five claims. As l
 |---|---|---|
 | `sub` | user id, or `service:{id}` for service keys | `updatedBy`, draft ownership |
 | `azp` | tenant key (`Client.Key`) | all data isolation |
-| `roles` | authorization roles | `CmsAccess` / `CmsRead` / `AdminAccess` policies |
+| `roles` | authorization roles | `ContentRead` / `ContentWrite` / `SchemaSync` / `TenantAdmin` policies |
 | `name` | display name (falls back to e-mail); service keys carry the key name | panel display, `Identity.Name` |
-| `email` | user e-mail; absent on service-key principals | panel display; proves a human principal to `AdminAccess` |
+| `email` | user e-mail; absent on service-key principals | panel display; proves a human principal to `TenantAdmin` |
 
 There is deliberately no `preferred_username`: Inscribed has no username concept (no local accounts, no passwords), so the OIDC-standard `name` + `email` pair is emitted instead.
 
@@ -77,14 +77,14 @@ The handler looks the key up by its first 16 characters (`KeyPrefix`, indexed), 
 | Role | Grants | Typical holder |
 |---|---|---|
 | `cms:access` | read + write CMS content | editors, deploy-pipeline keys |
-| `cms:read` | read-only (`CmsRead` accepts either role) | render keys of private sites |
+| `cms:read` | read-only (`ContentRead` accepts either role) | render keys of private sites |
 | `cms:admin` | `/admin/*` | operators |
 
 Admin endpoints ignore `azp`: an admin manages all clients regardless of which client they logged in through, while content editing still requires a real membership on the target client. Public sites need no role at all once the client's `AllowAnonymousContentRead` flag is on; that flag is tenant policy, changed by an admin (`PUT /admin/clients/{key}`), never by sync.
 
-**Tenant administration is refused to machines.** Because `/admin/*` can mint service keys, a machine principal holding the admin role could issue itself replacements and survive revocation, which would make rotation meaningless. Two independent checks close that: `AdminAccess` also requires the `email` claim, which service-key principals never carry, and `ServiceKeyService.ValidateAsync` strips the admin role from a key's claims even when the stored row still carries it, logging a warning naming the key. Stripping lives in `ValidateAsync` rather than the authentication handler because it is the single producer of that role array, so any future consumer inherits the guarantee. For the same reason the bootstrap-admin allowlist only grants the role in tokens minted for `Auth:AdminClientKey`: a bootstrap admin logging in through a tenant's own client gets that tenant's membership roles and nothing more.
+**Tenant administration is refused to machines.** Because `/admin/*` can mint service keys, a machine principal holding the admin role could issue itself replacements and survive revocation, which would make rotation meaningless. Two independent checks close that: `TenantAdmin` also requires the `email` claim, which service-key principals never carry, and `ServiceKeyService.ValidateAsync` strips the admin role from a key's claims even when the stored row still carries it, logging a warning naming the key. Stripping lives in `ValidateAsync` rather than the authentication handler because it is the single producer of that role array, so any future consumer inherits the guarantee. For the same reason the bootstrap-admin allowlist only grants the role in tokens minted for `Auth:AdminClientKey`: a bootstrap admin logging in through a tenant's own client gets that tenant's membership roles and nothing more.
 
-Authorization policies (`CmsAccess`, `CmsRead`, `AdminAccess`) are defined in [Program.cs](../src/Inscribed.Api/Program.cs), not inside the auth module: what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
+Authorization policies (`ContentRead`, `ContentWrite`, `SchemaSync`, `TenantAdmin`) are defined in [Program.cs](../src/Inscribed.Api/Program.cs), not inside the auth module: what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
 
 ## Storage
 

@@ -137,7 +137,7 @@ There is **no test project yet**; adding one (xUnit under `tests/`) is welcome a
 - **No code comments.** The codebase is deliberately comment-free; names, types and structure carry the meaning. Put the "why" in the PR description or in `docs/`, not in the source.
 - **Contracts are `sealed record`s** in `Application/Contracts`; entities are `sealed class`es with private constructors and factories.
 - **Endpoints stay thin.** They read claims, validate presence of required inputs, call one service method, and translate the result; business rules and error decisions belong in `Application` services or entities.
-- **Endpoints reference policy names, never role names.** `RequireAuthorization("CmsAccess")`, not `RequireRole("cms:access")`; the mapping lives in `Program.cs`.
+- **Endpoints reference policy names, never role names.** `RequireAuthorization("ContentWrite")`, not `RequireRole("cms:access")`; the mapping lives in `Program.cs`.
 - **Async all the way down**, with `CancellationToken` accepted (defaulted) on every service and repository method.
 - **Time is passed in, not sampled.** Entity methods take `DateTime utcNow` as a parameter; call sites sample `DateTime.UtcNow` once per operation.
 - **Every mutation bumps `Version`.** New entity methods that change state must increment it, or optimistic concurrency silently stops protecting that path.
@@ -161,7 +161,7 @@ No migration is needed: items of all collections share the `CollectionItem` tabl
 ### Add an endpoint
 
 1. Pick the group: content in [CmsEndpoints](src/Inscribed.Api/Endpoints/CmsEndpoints.cs), collections in [CollectionEndpoints](src/Inscribed.Api/Endpoints/CollectionEndpoints.cs), auth/admin in `Inscribed.Auth/Endpoints/`.
-2. Guard with an existing policy (`CmsRead` for reads, `CmsAccess` for writes, `AdminAccess` for administration); a new kind of permission means a new policy in `Program.cs`, not a role check in the endpoint.
+2. Guard with an existing policy (`ContentRead` for reads, `ContentWrite` for content writes, `SchemaSync` for manifest reconcile, `TenantAdmin` for administration); a new kind of permission means a new policy in `Program.cs`, not a role check in the endpoint.
 3. Read identity only via [UserPrincipalExtensions](src/Inscribed.Api/Authentication/UserPrincipalExtensions.cs) (`GetClientId`, `GetUserSub`) and pass values into the service; services never touch `HttpContext`.
 4. Set cache headers explicitly for anonymous-readable endpoints (`Vary: Authorization`, `public` vs `private, no-store`).
 

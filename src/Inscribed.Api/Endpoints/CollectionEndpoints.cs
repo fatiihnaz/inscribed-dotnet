@@ -15,9 +15,9 @@ public static class CollectionEndpoints
         {
             var mine = service.GetMyCollections(context.User);
             return Results.Ok(mine);
-        }).RequireAuthorization("CmsAccess");
+        }).RequireAuthorization("ContentWrite");
 
-        var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("CmsAccess");
+        var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("ContentWrite");
 
         group.MapGet("/schema", (string key, HttpContext context, ICollectionService service) =>
         {

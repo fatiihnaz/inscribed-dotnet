@@ -16,17 +16,22 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddInscribedAuth(builder.Configuration);
 
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("CmsAccess", policy =>
-    {
-        policy.RequireAuthenticatedUser();
-        policy.RequireRole("cms:access");
-    })
-    .AddPolicy("CmsRead", policy =>
+    .AddPolicy("ContentRead", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.RequireRole("cms:read", "cms:access");
     })
-    .AddPolicy("AdminAccess", policy =>
+    .AddPolicy("ContentWrite", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole("cms:access");
+    })
+    .AddPolicy("SchemaSync", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole("cms:access");
+    })
+    .AddPolicy("TenantAdmin", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.RequireRole(builder.Configuration["Auth:Admin:Role"] ?? "cms:admin");
