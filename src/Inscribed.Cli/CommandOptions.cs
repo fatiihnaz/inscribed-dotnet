@@ -7,16 +7,25 @@ internal sealed class UsageException : Exception
     public UsageException(string message) : base(message) { }
 }
 
+internal interface IInteraction
+{
+    string? Ask(string name, bool required, string? suggestion = null);
+
+    bool Confirm(string action);
+}
+
 internal sealed class CommandOptions
 {
     private readonly Dictionary<string, string> _values;
+    private readonly IInteraction? _interaction;
 
-    private CommandOptions(Dictionary<string, string> values)
+    private CommandOptions(Dictionary<string, string> values, IInteraction? interaction)
     {
         _values = values;
+        _interaction = interaction;
     }
 
-    public static CommandOptions Parse(string[] args, int offset)
+    public static CommandOptions Parse(string[] args, int offset, IInteraction? interaction = null)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -45,18 +54,52 @@ internal sealed class CommandOptions
             values[name] = args[++i];
         }
 
-        return new CommandOptions(values);
+        return new CommandOptions(values, interaction);
     }
 
-    public string Require(string name) =>
-        _values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value
-            : throw new UsageException($"--{name} is required.");
+    public string Require(string name, string? suggestion = null)
+    {
+        if (_values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
 
-    public string? Get(string name) => _values.TryGetValue(name, out var value) ? value : null;
+        if (_interaction is null)
+        {
+            throw new UsageException($"--{name} is required.");
+        }
+
+        var entered = _interaction.Ask(name, true, suggestion);
+        if (string.IsNullOrWhiteSpace(entered))
+        {
+            throw new UsageException($"--{name} is required.");
+        }
+
+        _values[name] = entered;
+        return entered;
+    }
+
+    public string? Get(string name)
+    {
+        if (!_values.TryGetValue(name, out var value))
+        {
+            if (_interaction is null)
+            {
+                return null;
+            }
+
+            value = _interaction.Ask(name, false) ?? string.Empty;
+            _values[name] = value;
+        }
+
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
 
     public string[]? GetList(string name) =>
         Get(name)?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    public string[] RequireList(string name, string? suggestion = null) =>
+        Require(name, suggestion).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     public bool? GetBool(string name)
     {

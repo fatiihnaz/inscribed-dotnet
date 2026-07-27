@@ -6,6 +6,7 @@ namespace Inscribed.Auth.Storage.Repositories;
 public interface IMembershipRepository
 {
     Task<Membership?> GetAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default);
+    Task<int> CountByClientAsync(Guid clientId, CancellationToken cancellationToken = default);
     void Add(Membership membership);
     void Remove(Membership membership);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
@@ -22,6 +23,9 @@ internal sealed class MembershipRepository : IMembershipRepository
 
     public Task<Membership?> GetAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default) =>
         _context.Memberships.FirstOrDefaultAsync(x => x.UserId == userId && x.ClientId == clientId, cancellationToken);
+
+    public Task<int> CountByClientAsync(Guid clientId, CancellationToken cancellationToken = default) =>
+        _context.Memberships.CountAsync(x => x.ClientId == clientId, cancellationToken);
 
     public void Add(Membership membership) => _context.Memberships.Add(membership);
 

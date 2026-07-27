@@ -401,24 +401,70 @@ dotnet run --project src/Inscribed.Cli -- client create --key my-site --name "My
 In Docker the CLI ships inside the same image as the API, so no SDK and no published database port are needed:
 
 ```sh
-docker compose exec api dotnet Inscribed.Cli.dll client list          # inside the running API container
-docker compose --profile admin run --rm admin client list             # one-shot, works while the API is down
+docker compose exec api dotnet Inscribed.Cli.dll client list   # inside the running API container
+docker compose run --rm admin client list                      # one-shot, works while the API is down
 ```
 
 | Command | Purpose |
 |---|---|
+| `status` | tenant, user and active-key counts plus the active signing key |
 | `user list` | users, with their Google link and active state |
 | `client list` | tenants, with active state and anonymous-read flag |
+| `client show --key` | one tenant in full: origins, creation time, key and member counts |
 | `client create --key --name [--origins a,b]` | create a tenant |
 | `client update --key --name [--origins a,b] [--active] [--anonymous-read]` | update a tenant; omitted flags keep their current value |
 | `membership set --client --email [--capabilities a,b]` | set a user's capabilities on a tenant (**replaces** the existing set) |
 | `membership remove --client --email` | remove a membership |
 | `service-key list --client` | keys with prefix, capabilities and state; never the secret |
 | `service-key create --client --name --capabilities a,b [--expires date]` | mint a key; presets (`render`, `deploy`, `editor`) expand in place |
-| `service-key revoke --client --id` | revoke a key immediately |
+| `service-key revoke --client --id` | revoke a key immediately; any unambiguous id prefix works |
 | `signing-key rotate` | rotate the RS256 signing key |
 
-The raw service key is printed **alone on stdout** and its "shown once" warning on stderr, so `… service-key create … > key.txt` captures exactly the secret. Exit codes: `0` success, `1` the operation was rejected (unknown client, duplicate key, missing user), `2` a usage error.
+Started without arguments, the CLI opens an interactive console instead of running a single command. It asks for whatever a command needs but did not receive, so `client create` on its own walks through the tenant key, the name and the optional origins one field at a time. A command that already carries flags is taken at face value: only genuinely missing **required** values are asked for, never the optional ones. Revoking a key, removing a membership and rotating the signing key ask for confirmation here; run non-interactively and they proceed unattended, so scripts keep working. The banner names the database you are pointed at, which is the cheapest guard against administering the wrong environment. `help` prints the table above, `exit` (or end-of-input) leaves.
+
+`use <client>` fixes a tenant for the rest of the session: the prompt shows it and `--client` (or `--key`, for `client show` and `client update`) fills itself in. `use` on its own clears it. Where a value has a known set, the console offers it rather than expecting recall, so `service-key create` lists the capability presets and takes either a number or the names.
+
+The prompt is a real line editor: **Tab** completes commands, options, tenant keys and capabilities from the position you are at, **↑/↓** walk the session's history, ←/→/Home/End edit in place, Ctrl+C abandons the line and Ctrl+D on an empty line leaves. When input is piped the editor steps aside and lines are read verbatim, so scripted sessions behave exactly as before.
+
+```
+$ docker compose run --rm admin
+
+  Inscribed admin console
+  db:5432/inscribed_cms · 3 clients · 2 users · 4 active keys · kid a7f3c9
+
+  'help' for commands · 'use <client>' to pick a tenant · 'exit' to leave
+
+inscribed> use my-site
+
+  Context: my-site (My Site)
+
+inscribed my-site> service-key create
+  name: nightly-build
+  capabilities:
+
+    1  editor   content:read + content:write
+    2  render   content:read
+    3  deploy   schema:sync
+    4  admin    tenant:admin  (human only)
+
+    or type them directly, comma separated
+
+  > 3
+  expires (optional):
+ink_live_7Kd93mQx1vNfR8sT2wYbE5hJ4uZaC6pL
+
+inscribed my-site> service-key list
+
+  ID        PREFIX               NAME           STATE   CAPABILITIES
+  ────────  ───────────────────  ─────────────  ──────  ────────────
+  9c2e4a71  ink_live_7Kd93mQ...  nightly-build  active  schema:sync
+
+  1 key · 1 active
+```
+
+A tenant key is chosen, not generated: it appears in public content URLs (`/cms/public/my-site/data`), in the `azp` claim and in every consumer's configuration, so it has to stay readable and stable. The console derives a suggestion from the name (transliterating Turkish letters, so `Şirket Adı` becomes `sirket-adi`) and accepts it on an empty line. Keys are limited to lowercase letters, digits and hyphens, starting and ending with a letter or digit; anything else is rejected rather than silently rewritten.
+
+**A table is a display, not a data format.** When stdout is a terminal the console draws headers, rules, counts and colour; the moment stdout is redirected it emits bare rows and nothing else, so `client list > tenants.txt` is machine-readable and `… service-key create … > key.txt` captures exactly the secret, printed alone and shown once. Prompts, confirmations and warnings always go to stderr. `NO_COLOR` disables colour everywhere, and `FORCE_COLOR` keeps the full display when redirecting into a pager or a CI log. Exit codes: `0` success, `1` the operation was rejected (unknown client, duplicate key, missing user), `2` a usage error.
 
 Memberships can only be set for users that already exist, and users are created on first Google login; the CLI reports this rather than pre-provisioning an account. A rotated signing key reaches a running API within its five-minute key cache, and the previous key keeps verifying for a one-hour grace, so rotation never invalidates tokens mid-flight.
 

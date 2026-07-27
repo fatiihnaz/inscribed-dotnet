@@ -2,9 +2,11 @@ using Inscribed.Auth;
 using Inscribed.Auth.Services;
 using Inscribed.Cli;
 using Inscribed.Domain.Exceptions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 try
 {
@@ -13,8 +15,7 @@ try
 catch (UsageException exception)
 {
     Console.Error.WriteLine(exception.Message);
-    Console.Error.WriteLine();
-    Console.Error.WriteLine(AdminCommands.Usage);
+    AdminCommands.WriteHelp(interactive: false);
     return 2;
 }
 catch (Exception exception)
@@ -25,9 +26,11 @@ catch (Exception exception)
 
 static async Task<int> RunAsync(string[] args)
 {
-    if (args.Length == 0 || args[0] is "help" or "--help" or "-h")
+    var interactive = args.Length == 0;
+
+    if (!interactive && args[0] is "help" or "--help" or "-h")
     {
-        Console.WriteLine(AdminCommands.Usage);
+        AdminCommands.WriteHelp(interactive: false);
         return 0;
     }
 
@@ -37,8 +40,34 @@ static async Task<int> RunAsync(string[] args)
     builder.Services.AddInscribedAuth(builder.Configuration);
 
     using var host = builder.Build();
-    using var scope = host.Services.CreateScope();
 
+    if (interactive)
+    {
+        await InteractiveShell.RunAsync(
+            host.Services.GetRequiredService<IServiceScopeFactory>(),
+            Describe(builder.Configuration.GetConnectionString("Default")));
+        return 0;
+    }
+
+    using var scope = host.Services.CreateScope();
     await AdminCommands.RunAsync(scope.ServiceProvider.GetRequiredService<IAdminService>(), args);
     return 0;
+}
+
+static string Describe(string? connectionString)
+{
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        return "no connection string";
+    }
+
+    try
+    {
+        var settings = new NpgsqlConnectionStringBuilder(connectionString);
+        return $"{settings.Host}:{settings.Port}/{settings.Database}";
+    }
+    catch (ArgumentException)
+    {
+        return "unparsable connection string";
+    }
 }

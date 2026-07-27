@@ -11,6 +11,8 @@ public interface IAdminService
 {
     Task<IReadOnlyList<User>> ListUsersAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Client>> ListClientsAsync(CancellationToken cancellationToken = default);
+    Task<ClientDetail> GetClientAsync(string key, CancellationToken cancellationToken = default);
+    Task<AdminOverview> GetOverviewAsync(CancellationToken cancellationToken = default);
     Task<Client> CreateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, CancellationToken cancellationToken = default);
     Task<Client> UpdateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, bool? isActive, bool? allowAnonymousContentRead, CancellationToken cancellationToken = default);
     Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? capabilities, CancellationToken cancellationToken = default);
@@ -22,6 +24,10 @@ public interface IAdminService
 }
 
 public sealed record MembershipResult(Guid UserId, string Email, string ClientKey, string[] Capabilities);
+
+public sealed record ClientDetail(Client Client, int ServiceKeys, int ActiveServiceKeys, int Members);
+
+public sealed record AdminOverview(int Clients, int Users, int ActiveServiceKeys, string SigningKeyId);
 
 public sealed record ServiceKeyCreated(Guid Id, string KeyPrefix, string RawKey);
 
@@ -60,6 +66,37 @@ internal sealed class AdminService : IAdminService
     public Task<IReadOnlyList<ServiceKey>> ListServiceKeysAsync(string clientKey, CancellationToken cancellationToken = default) => _serviceKeys.GetByClientKeyAsync(clientKey, cancellationToken);
 
     public string RotateSigningKey() => _signingKeys.Rotate();
+
+    public async Task<ClientDetail> GetClientAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var client = await _clients.GetByKeyAsync(key, cancellationToken);
+        if (client is null)
+        {
+            throw new NotFoundException($"Client '{key}' not found.");
+        }
+
+        var now = DateTime.UtcNow;
+        var keys = await _serviceKeys.GetByClientKeyAsync(client.Key, cancellationToken);
+        var members = await _memberships.CountByClientAsync(client.Id, cancellationToken);
+
+        return new ClientDetail(client, keys.Count, keys.Count(serviceKey => serviceKey.IsActive(now)), members);
+    }
+
+    public async Task<AdminOverview> GetOverviewAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var clients = await _clients.GetAllAsync(cancellationToken);
+        var users = await _users.GetAllAsync(cancellationToken);
+
+        var activeKeys = 0;
+        foreach (var client in clients)
+        {
+            var keys = await _serviceKeys.GetByClientKeyAsync(client.Key, cancellationToken);
+            activeKeys += keys.Count(serviceKey => serviceKey.IsActive(now));
+        }
+
+        return new AdminOverview(clients.Count, users.Count, activeKeys, _signingKeys.GetActiveSigningCredentials().Key.KeyId);
+    }
 
     public async Task<Client> CreateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, CancellationToken cancellationToken = default)
     {

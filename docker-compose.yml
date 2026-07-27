@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
@@ -42,9 +42,9 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Admin console: `docker compose --profile admin run --rm admin client list`.
-  # Reaches the database over the compose network, so it works with 5432 unpublished
-  # and before anyone has logged in.
+  # Admin console: `docker compose run --rm admin client list` (run enables the profile
+  # on its own). Reaches the database over the compose network, so it works with 5432
+  # unpublished and before anyone has logged in.
   admin:
     profiles: ["admin"]
     build:
