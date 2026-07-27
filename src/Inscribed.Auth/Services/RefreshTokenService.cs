@@ -132,7 +132,8 @@ internal sealed class RefreshTokenService : IRefreshTokenService
         var membership = await _memberships.GetAsync(user.Id, client.Id, cancellationToken);
         var roles = new List<string>(membership?.Roles ?? []);
 
-        if (_options.Admin.BootstrapAdmins.Contains(user.Email, StringComparer.OrdinalIgnoreCase)
+        if (string.Equals(client.Key, _options.AdminClientKey, StringComparison.Ordinal)
+            && _options.Admin.BootstrapAdmins.Contains(user.Email, StringComparer.OrdinalIgnoreCase)
             && !roles.Contains(_options.Admin.Role))
         {
             roles.Add(_options.Admin.Role);

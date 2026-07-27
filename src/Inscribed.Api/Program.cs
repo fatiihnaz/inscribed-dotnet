@@ -30,6 +30,7 @@ builder.Services.AddAuthorizationBuilder()
     {
         policy.RequireAuthenticatedUser();
         policy.RequireRole(builder.Configuration["Auth:Admin:Role"] ?? "cms:admin");
+        policy.RequireClaim("email");
     });
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

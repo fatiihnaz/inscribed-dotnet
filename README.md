@@ -222,6 +222,8 @@ Roles are computed at refresh time from memberships (plus the bootstrap-admin al
 | `cms:read` | read-only; meant for render service keys of private sites |
 | `cms:admin` | `/admin/*`: clients, memberships, service keys, signing-key rotation |
 
+`cms:admin` is for humans only: `/admin/*` can mint service keys, so a machine holding it could issue itself replacements and outlive revocation. Service-key principals are rejected there even if their stored role list says otherwise, and the bootstrap-admin allowlist only applies to logins through the admin client.
+
 The full design rationale (rotation, reuse leeway, key rotation grace, cookie strategy) is documented in [docs/auth.md](docs/auth.md).
 
 ### Anonymous public reads and caching

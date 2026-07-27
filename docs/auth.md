@@ -16,7 +16,7 @@ Everything the CMS reads from an authenticated request fits in five claims. As l
 | `azp` | tenant key (`Client.Key`) | all data isolation |
 | `roles` | authorization roles | `CmsAccess` / `CmsRead` / `AdminAccess` policies |
 | `name` | display name (falls back to e-mail); service keys carry the key name | panel display, `Identity.Name` |
-| `email` | user e-mail; absent on service-key principals | panel display |
+| `email` | user e-mail; absent on service-key principals | panel display; proves a human principal to `AdminAccess` |
 
 There is deliberately no `preferred_username`: Inscribed has no username concept (no local accounts, no passwords), so the OIDC-standard `name` + `email` pair is emitted instead.
 
@@ -82,6 +82,8 @@ The handler looks the key up by its first 16 characters (`KeyPrefix`, indexed), 
 
 Admin endpoints ignore `azp`: an admin manages all clients regardless of which client they logged in through, while content editing still requires a real membership on the target client. Public sites need no role at all once the client's `AllowAnonymousContentRead` flag is on; that flag is tenant policy, changed by an admin (`PUT /admin/clients/{key}`), never by sync.
 
+**Tenant administration is refused to machines.** Because `/admin/*` can mint service keys, a machine principal holding the admin role could issue itself replacements and survive revocation, which would make rotation meaningless. Two independent checks close that: `AdminAccess` also requires the `email` claim, which service-key principals never carry, and `ServiceKeyService.ValidateAsync` strips the admin role from a key's claims even when the stored row still carries it, logging a warning naming the key. Stripping lives in `ValidateAsync` rather than the authentication handler because it is the single producer of that role array, so any future consumer inherits the guarantee. For the same reason the bootstrap-admin allowlist only grants the role in tokens minted for `Auth:AdminClientKey`: a bootstrap admin logging in through a tenant's own client gets that tenant's membership roles and nothing more.
+
 Authorization policies (`CmsAccess`, `CmsRead`, `AdminAccess`) are defined in [Program.cs](../src/Inscribed.Api/Program.cs), not inside the auth module: what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
 
 ## Storage
@@ -124,6 +126,7 @@ The reference end-to-end verification after auth changes:
 6. A `cms:access` key gets 200 from `POST /cms/sync`; a `cms:read` key gets 200 from `GET /cms/data` but **403** from `POST /cms/sync`.
 7. With the client flag off, `GET /cms/public/{clientKey}/data` is 404; after `PUT /admin/clients/{key}` enables it, 200 with `Cache-Control: public`.
 8. Revoking the service key turns its next request into 401.
+9. A service key carrying the admin role gets **403** from `GET /admin/users` and logs a warning, while the same call with a bootstrap admin's access token returns 200. Logging in through a non-admin client and refreshing yields a token without the admin role.
 
 ## Known limits
 

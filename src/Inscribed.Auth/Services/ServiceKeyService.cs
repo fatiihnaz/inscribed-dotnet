@@ -1,7 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using Inscribed.Auth.Entities;
+using Inscribed.Auth.Options;
 using Inscribed.Auth.Storage.Repositories;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Inscribed.Auth.Services;
@@ -35,11 +38,19 @@ internal sealed class ServiceKeyService : IServiceKeyService
 {
     private readonly IServiceKeyRepository _serviceKeys;
     private readonly IClientRepository _clients;
+    private readonly AuthOptions _options;
+    private readonly ILogger<ServiceKeyService> _logger;
 
-    public ServiceKeyService(IServiceKeyRepository serviceKeys, IClientRepository clients)
+    public ServiceKeyService(
+        IServiceKeyRepository serviceKeys,
+        IClientRepository clients,
+        IOptions<AuthOptions> options,
+        ILogger<ServiceKeyService> logger)
     {
         _serviceKeys = serviceKeys;
         _clients = clients;
+        _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<CreatedServiceKey> CreateAsync(string clientKey, string name, IReadOnlyList<string> roles, DateTime? expiresAt = null, CancellationToken cancellationToken = default)
@@ -88,9 +99,27 @@ internal sealed class ServiceKeyService : IServiceKeyService
             }
 
             await _serviceKeys.TouchLastUsedAsync(candidate.Id, now, cancellationToken);
-            return new ValidatedServiceKey(candidate.Id, candidate.ClientKey, candidate.Name, candidate.Roles);
+            return new ValidatedServiceKey(candidate.Id, candidate.ClientKey, candidate.Name, WithoutHumanOnlyRoles(candidate));
         }
 
         return null;
+    }
+
+    private string[] WithoutHumanOnlyRoles(ServiceKey key)
+    {
+        var adminRole = _options.Admin.Role;
+
+        if (!key.Roles.Contains(adminRole, StringComparer.OrdinalIgnoreCase))
+        {
+            return key.Roles;
+        }
+
+        _logger.LogWarning(
+            "Service key {ServiceKeyId} on client '{ClientKey}' carries '{Role}'; tenant administration is refused to machine principals. Revoke and re-issue it.",
+            key.Id,
+            key.ClientKey,
+            adminRole);
+
+        return [.. key.Roles.Where(role => !string.Equals(role, adminRole, StringComparison.OrdinalIgnoreCase))];
     }
 }
