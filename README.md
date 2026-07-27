@@ -122,7 +122,7 @@ This is the **self-hosted Docker path** ending with content synced and readable 
 
    ```sh
    curl -X POST http://localhost:5000/cms/sync \
-     -H "X-Service-Key: ink_live_..." -H "Content-Type: application/json" \
+     -H "Authorization: Bearer ink_live_..." -H "Content-Type: application/json" \
      -d '[{"slug":"home","blocks":[
            {"blockPath":"hero.title","blockType":"Text","defaultValue":"Hello","sortOrder":0},
            {"blockPath":"hero.body","blockType":"RichText","defaultValue":"<p>…</p>","sortOrder":1}
@@ -132,7 +132,7 @@ This is the **self-hosted Docker path** ending with content synced and readable 
 7. Read it back:
 
    ```sh
-   curl "http://localhost:5000/cms/data?slug=home" -H "X-Service-Key: ink_live_..."
+   curl "http://localhost:5000/cms/content?slug=home" -H "Authorization: Bearer ink_live_..."
    ```
 
 You now have a running CMS with one tenant, one synced page, and a working admin identity. Next steps: grant editors access with `POST /admin/clients/{key}/memberships`, wire an editor panel against the API, and read [Core concepts](#core-concepts) for the content model.
@@ -212,7 +212,7 @@ Three credentials exist, each with a distinct job:
 |---|---|---|---|---|
 | Access token | RS256 JWT | 15 min (config) | no (by design) | `Authorization: Bearer` |
 | Refresh token | opaque, hashed in DB | 30 days (config) | yes, instantly | httpOnly cookie, `Path=/auth` |
-| Service key | opaque `ink_live_…`, hashed in DB | optional expiry | yes, instantly | `X-Service-Key` or `Authorization: Bearer` |
+| Service key | opaque `ink_live_…`, hashed in DB | optional expiry | yes, instantly | `Authorization: Bearer` |
 
 Humans sign in with Google (`/auth/login` → callback → refresh cookie); Inscribed then issues its own tokens, so capabilities and tenancy live in **your** database, not Google's. Machines use service keys; a policy scheme routes each request to the right authentication handler, so every endpoint accepts both without knowing the difference.
 
@@ -233,7 +233,7 @@ The full design rationale (rotation, reuse leeway, key rotation grace, cookie st
 
 ### Anonymous public reads and caching
 
-For public sites there is a third read path that needs **no credential at all**: if an admin flips a client's `AllowAnonymousContentRead` flag, `GET /cms/public/{clientKey}/data?slug=…` serves published block values with CDN-cacheable headers. If the flag is off or the client key is unknown the endpoint returns **404**, leaking neither existence nor policy. Collection reads can likewise be opened per collection via `AllowAnonymousRead`.
+For public sites there is a third read path that needs **no credential at all**: if an admin flips a client's `AllowAnonymousContentRead` flag, `GET /cms/public/{clientKey}/content?slug=…` serves published block values with CDN-cacheable headers. If the flag is off or the client key is unknown the endpoint returns **404**, leaking neither existence nor policy. Collection reads can likewise be opened per collection via `AllowAnonymousRead`.
 
 On collection read routes the two halves of `Cache-Control` answer different questions. **Shared or private** is a property of the *content*: a collection with `AllowAnonymousRead` may sit in a CDN, one without it may not, no matter who asked. **Fresh or stored** is a property of the *caller*: only a holder of `content:write` sees draft overlays, so only they get `no-store`.
 
@@ -243,7 +243,7 @@ On collection read routes the two halves of `Cache-Control` answer different que
 | `content:read` | `public, max-age=60, stale-while-revalidate=300` | `private, max-age=60` |
 | `content:write` | `private, no-store` | `private, no-store` |
 
-All of them send `Vary: Authorization, X-Service-Key`, which must list **both** headers: a service key travels in either, so a cache keyed on only one could serve a private collection to a caller who presented no credential. A `content:read` principal also skips the per-item draft lookup entirely, so a render key costs zero Redis round-trips per item. The page endpoints (`/cms/content`, `/cms/data`) send no cache headers, so nothing caches them.
+All of them send `Vary: Authorization`. Both credential kinds travel in that one header, so it is a complete cache key: a shared cache can never hand a private collection to a caller who presented no credential. A `content:read` principal also skips the per-item draft lookup entirely, so a render key costs zero Redis round-trips per item. `GET /cms/content` follows the same rule, reading the tenant-wide `AllowAnonymousContentRead` flag where a collection reads its own.
 
 ## Architecture
 
@@ -342,9 +342,8 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 
 | Method & path | Policy | Purpose |
 |---|---|---|
-| `GET /cms/content?slug=` | ContentRead | published blocks + caller's draft overlay |
-| `GET /cms/data?slug=` | ContentRead | published values only, no draft overlay |
-| `GET /cms/public/{clientKey}/data?slug=` | anon\* | as above, credential-free, CDN-cacheable |
+| `GET /cms/content?slug=` | ContentRead | published blocks; the caller's draft overlay is added only for `content:write` |
+| `GET /cms/public/{clientKey}/content?slug=` | anon\* | as above, credential-free, CDN-cacheable |
 | `PUT /cms/content` | ContentWrite | publish block values (optimistic concurrency) |
 | `PUT /cms/draft` | ContentWrite | save the caller's page draft |
 | `POST /cms/sync` | SchemaSync | whole-state manifest reconcile |

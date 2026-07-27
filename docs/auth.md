@@ -26,11 +26,11 @@ There is deliberately no `preferred_username`: Inscribed has no username concept
 |---|---|---|---|---|
 | Access token | RS256 JWT | `Auth:AccessTokenMinutes` (15) | no, by design | `Authorization: Bearer` |
 | Refresh token | opaque 256-bit random, SHA-256 hash in DB | `Auth:RefreshTokenDays` (30) | instantly | httpOnly cookie, `Path=/auth` |
-| Service key | opaque `ink_live_…`, SHA-256 hash in DB | optional expiry | instantly | `X-Service-Key` or `Authorization: Bearer` |
+| Service key | opaque `ink_live_…`, SHA-256 hash in DB | optional expiry | instantly | `Authorization: Bearer` |
 
 Storage rules: raw secrets exist exactly once, in the response of the call that created them. SHA-256 without a work factor is sufficient because both values are 256-bit random; bcrypt-style stretching only matters for low-entropy secrets. Refresh tokens are opaque rather than JWTs because their only consumer is this server and they must be revocable, which requires a DB row anyway.
 
-A **policy scheme** routes each request per its shape: requests presenting an `ink_live_` key go to the `ServiceToken` handler, everything else to `Bearer`. Endpoints never inspect headers themselves; `/cms/sync` accepts both credential kinds without containing a line of auth logic.
+A **policy scheme** routes each request per its shape: both credential kinds arrive in `Authorization: Bearer`, and the `ink_live_` prefix decides which handler runs (a JWT starts with `eyJ`, so the two can never be confused). A dedicated `X-Service-Key` header was dropped on purpose: one channel keeps `Vary: Authorization` a complete cache key, and log pipelines redact `Authorization` by default while a custom header would leak the raw key into access logs. Endpoints never inspect headers themselves; `/cms/sync` accepts both credential kinds without containing a line of auth logic.
 
 ## Flows
 
@@ -129,9 +129,9 @@ The reference end-to-end verification after auth changes:
 3. `/auth/login?clientKey=admin&redirectUri=…` with a bootstrap-admin Google account completes and sets the cookie.
 4. `POST /auth/refresh` returns an access token whose decoded payload carries `sub`, `azp`, `roles`, `name`, `email`.
 5. `POST /admin/clients/{key}/service-keys` returns the raw key once.
-6. A `schema:sync` key gets 200 from `POST /cms/sync`; a `content:read` key gets 200 from `GET /cms/data` but **403** from `POST /cms/sync`.
-7. With the client flag off, `GET /cms/public/{clientKey}/data` is 404; after `PUT /admin/clients/{key}` enables it, 200 with `Cache-Control: public`.
-8. Revoking the service key turns its next request into 401 on `/cms/data`. On the three collection read routes it is 401 only for a collection without `AllowAnonymousRead`: those routes are `AllowAnonymous` and evaluate access in the handler, so an invalid key silently degrades to an anonymous caller and still gets 200 on a public collection.
+6. A `schema:sync` key gets 200 from `POST /cms/sync`; a `content:read` key gets 200 from `GET /cms/content` but **403** from `POST /cms/sync`.
+7. With the client flag off, `GET /cms/public/{clientKey}/content` is 404; after `PUT /admin/clients/{key}` enables it, 200 with `Cache-Control: public`.
+8. Revoking the service key turns its next request into 401 on `/cms/content`. On the three collection read routes it is 401 only for a collection without `AllowAnonymousRead`: those routes are `AllowAnonymous` and evaluate access in the handler, so an invalid key silently degrades to an anonymous caller and still gets 200 on a public collection.
 9. A service key carrying `tenant:admin` gets **403** from `GET /admin/users` and logs a warning, while the same call with a bootstrap admin's access token returns 200. Logging in through a non-admin client and refreshing yields a token without the admin role.
 
 ## Known limits

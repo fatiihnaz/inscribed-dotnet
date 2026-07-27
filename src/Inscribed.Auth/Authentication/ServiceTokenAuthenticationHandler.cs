@@ -18,24 +18,16 @@ internal static class ServiceTokenLocator
 {
     public static string? Locate(HttpRequest request)
     {
-        string? headerKey = request.Headers["X-Service-Key"];
-        if (!string.IsNullOrWhiteSpace(headerKey))
-        {
-            return headerKey;
-        }
-
         string? authorization = request.Headers.Authorization;
         const string bearerPrefix = "Bearer ";
-        if (authorization is not null && authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+
+        if (authorization is null || !authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            var token = authorization[bearerPrefix.Length..].Trim();
-            if (token.StartsWith(ServiceKeyFormat.Prefix, StringComparison.Ordinal))
-            {
-                return token;
-            }
+            return null;
         }
 
-        return null;
+        var token = authorization[bearerPrefix.Length..].Trim();
+        return token.StartsWith(ServiceKeyFormat.Prefix, StringComparison.Ordinal) ? token : null;
     }
 }
 

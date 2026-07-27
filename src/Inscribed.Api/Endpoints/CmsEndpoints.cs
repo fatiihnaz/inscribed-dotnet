@@ -15,7 +15,7 @@ public static class CmsEndpoints
 
     public static IEndpointRouteBuilder MapCmsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/cms/public/{clientKey}/data", async (string clientKey, string? slug, HttpContext context, IClientRepository clients, IContentService service, CancellationToken ct) =>
+        app.MapGet("/cms/public/{clientKey}/content", async (string clientKey, string? slug, HttpContext context, IClientRepository clients, IContentService service, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(slug))
                 return Results.BadRequest("Slug is required.");
@@ -32,7 +32,7 @@ public static class CmsEndpoints
 
         var group = app.MapGroup("/cms");
 
-        group.MapGet("/content", async (string? slug, HttpContext context, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
+        group.MapGet("/content", async (string? slug, HttpContext context, IClientRepository clients, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -45,24 +45,20 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(slug))
                 return Results.BadRequest("Slug is required.");
 
-            var response = (await authorization.AuthorizeAsync(context.User, "ContentWrite")).Succeeded
-                ? await service.GetBySlugAsync(clientId, userId, slug, ct)
-                : await service.GetDataBySlugAsync(clientId, slug, ct);
+            context.Response.Headers.Vary = "Authorization";
 
-            return Results.Ok(response);
-        }).RequireAuthorization("ContentRead");
+            if ((await authorization.AuthorizeAsync(context.User, "ContentWrite")).Succeeded)
+            {
+                context.Response.Headers.CacheControl = "private, no-store";
+                return Results.Ok(await service.GetBySlugAsync(clientId, userId, slug, ct));
+            }
 
-        group.MapGet("/data", async (string? slug, HttpContext context, IContentService service, CancellationToken ct) =>
-        {
-            var clientId = context.User.GetClientId();
-            if (string.IsNullOrWhiteSpace(clientId))
-                return Results.Unauthorized();
+            var client = await clients.GetByKeyAsync(clientId, ct);
+            context.Response.Headers.CacheControl = client?.AllowAnonymousContentRead == true
+                ? $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}"
+                : $"private, max-age={PublicReadMaxAgeSeconds}";
 
-            if (string.IsNullOrWhiteSpace(slug))
-                return Results.BadRequest("Slug is required.");
-
-            var response = await service.GetDataBySlugAsync(clientId, slug, ct);
-            return Results.Ok(response);
+            return Results.Ok(await service.GetDataBySlugAsync(clientId, slug, ct));
         }).RequireAuthorization("ContentRead");
 
         group.MapPut("/content", async (HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>

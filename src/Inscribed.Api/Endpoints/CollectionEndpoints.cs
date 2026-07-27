@@ -121,7 +121,7 @@ public static class CollectionEndpoints
 
     private static void ApplyReadCacheHeaders(HttpContext context, bool isEditor, bool isPublicCollection)
     {
-        context.Response.Headers.Vary = "Authorization, X-Service-Key";
+        context.Response.Headers.Vary = "Authorization";
         context.Response.Headers.CacheControl = (isEditor, isPublicCollection) switch
         {
             (true, _) => "private, no-store",
