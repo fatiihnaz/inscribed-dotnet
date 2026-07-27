@@ -131,7 +131,7 @@ The reference end-to-end verification after auth changes:
 5. `POST /admin/clients/{key}/service-keys` returns the raw key once.
 6. A `schema:sync` key gets 200 from `POST /cms/sync`; a `content:read` key gets 200 from `GET /cms/data` but **403** from `POST /cms/sync`.
 7. With the client flag off, `GET /cms/public/{clientKey}/data` is 404; after `PUT /admin/clients/{key}` enables it, 200 with `Cache-Control: public`.
-8. Revoking the service key turns its next request into 401.
+8. Revoking the service key turns its next request into 401 on `/cms/data`. On the three collection read routes it is 401 only for a collection without `AllowAnonymousRead`: those routes are `AllowAnonymous` and evaluate access in the handler, so an invalid key silently degrades to an anonymous caller and still gets 200 on a public collection.
 9. A service key carrying `tenant:admin` gets **403** from `GET /admin/users` and logs a warning, while the same call with a bootstrap admin's access token returns 200. Logging in through a non-admin client and refreshing yields a token without the admin role.
 
 ## Known limits

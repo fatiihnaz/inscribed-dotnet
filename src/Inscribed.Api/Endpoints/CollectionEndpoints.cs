@@ -1,6 +1,7 @@
 using Inscribed.Api.Authentication;
 using Inscribed.Application.Contracts.Requests;
 using Inscribed.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inscribed.Api.Endpoints;
 
@@ -19,25 +20,27 @@ public static class CollectionEndpoints
 
         var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("ContentWrite");
 
-        group.MapGet("/schema", (string key, HttpContext context, ICollectionService service) =>
+        group.MapGet("/schema", async (string key, HttpContext context, ICollectionService service, IAuthorizationService authorization) =>
         {
-            var isEditor = context.User.CanReadCms();
-            if (!isEditor && !service.AllowsAnonymousRead(key))
+            var isPublic = service.AllowsAnonymousRead(key);
+            var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
+            if (!canRead && !isPublic)
                 return Results.Unauthorized();
 
-            ApplyReadCacheHeaders(context, isEditor);
+            ApplyReadCacheHeaders(context, isEditor, isPublic);
             var schema = service.GetSchema(key);
             return Results.Ok(schema);
         }).AllowAnonymous();
 
-        group.MapGet("/", async (string key, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapGet("/", async (string key, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
-            var isEditor = context.User.CanReadCms();
-            if (!isEditor && !service.AllowsAnonymousRead(key))
+            var isPublic = service.AllowsAnonymousRead(key);
+            var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
+            if (!canRead && !isPublic)
                 return Results.Unauthorized();
 
             var userId = isEditor ? context.User.GetUserSub() ?? string.Empty : string.Empty;
-            ApplyReadCacheHeaders(context, isEditor);
+            ApplyReadCacheHeaders(context, isEditor, isPublic);
 
             var query = context.Request.Query;
             var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
@@ -72,14 +75,15 @@ public static class CollectionEndpoints
             return Results.NoContent();
         });
 
-        group.MapGet("/{slug}", async (string key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapGet("/{slug}", async (string key, string slug, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
-            var isEditor = context.User.CanReadCms();
-            if (!isEditor && !service.AllowsAnonymousRead(key))
+            var isPublic = service.AllowsAnonymousRead(key);
+            var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
+            if (!canRead && !isPublic)
                 return Results.Unauthorized();
 
             var userId = isEditor ? context.User.GetUserSub() ?? string.Empty : string.Empty;
-            ApplyReadCacheHeaders(context, isEditor);
+            ApplyReadCacheHeaders(context, isEditor, isPublic);
 
             var item = await service.GetAsync(key, slug, context.User, userId, ct);
             return item is null ? Results.NotFound() : Results.Ok(item);
@@ -108,9 +112,21 @@ public static class CollectionEndpoints
         return app;
     }
 
-    private static void ApplyReadCacheHeaders(HttpContext context, bool isEditor)
+    private static async Task<(bool CanRead, bool IsEditor)> ResolveReadAccessAsync(IAuthorizationService authorization, HttpContext context)
     {
-        context.Response.Headers.Vary = "Authorization";
-        context.Response.Headers.CacheControl = isEditor ? "private, no-store" : $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}";
+        var isEditor = (await authorization.AuthorizeAsync(context.User, "ContentWrite")).Succeeded;
+        var canRead = isEditor || (await authorization.AuthorizeAsync(context.User, "ContentRead")).Succeeded;
+        return (canRead, isEditor);
+    }
+
+    private static void ApplyReadCacheHeaders(HttpContext context, bool isEditor, bool isPublicCollection)
+    {
+        context.Response.Headers.Vary = "Authorization, X-Service-Key";
+        context.Response.Headers.CacheControl = (isEditor, isPublicCollection) switch
+        {
+            (true, _) => "private, no-store",
+            (false, true) => $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}",
+            (false, false) => $"private, max-age={PublicReadMaxAgeSeconds}",
+        };
     }
 }

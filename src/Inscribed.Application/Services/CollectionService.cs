@@ -65,7 +65,7 @@ public sealed class CollectionService : ICollectionService
     {
         var policy = _policyResolver.Resolve(key);
         key = policy.Key;
-        var isAnonymous = string.IsNullOrWhiteSpace(userId);
+        var publishedOnly = string.IsNullOrWhiteSpace(userId);
 
         var filterJson = filters is { Count: > 0 }
             ? CollectionFilterParser.Build(policy.Schema, filters)
@@ -79,7 +79,7 @@ public sealed class CollectionService : ICollectionService
         {
             var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
 
-            if (isAnonymous)
+            if (publishedOnly)
             {
                 responses.Add(ToResponse(item, enriched, canEdit: null));
                 continue;
@@ -90,7 +90,7 @@ public sealed class CollectionService : ICollectionService
             responses.Add(ToResponse(item, enriched, policy.CanEdit(user, item.Slug), draftData));
         }
 
-        if (!isAnonymous && filterJson is null && offset == 0)
+        if (!publishedOnly && filterJson is null && offset == 0)
         {
             var newDraft = await _drafts.GetNewDraftAsync(key, userId, cancellationToken);
             var newDraftData = ResolveNewDraft(newDraft?.Data);

@@ -233,7 +233,17 @@ The full design rationale (rotation, reuse leeway, key rotation grace, cookie st
 
 ### Anonymous public reads and caching
 
-For public sites there is a third read path that needs **no credential at all**: if an admin flips a client's `AllowAnonymousContentRead` flag, `GET /cms/public/{clientKey}/data?slug=…` serves published block values with CDN-cacheable headers. If the flag is off or the client key is unknown the endpoint returns **404**, leaking neither existence nor policy. Collection reads can likewise be opened per collection via `AllowAnonymousRead`. Anonymous responses are cached (`public, max-age=60, stale-while-revalidate=300`). Collection read routes set `Vary: Authorization` and answer `private, no-store` to signed-in editors; the page endpoints (`/cms/content`, `/cms/data`) send no cache headers, so nothing caches them.
+For public sites there is a third read path that needs **no credential at all**: if an admin flips a client's `AllowAnonymousContentRead` flag, `GET /cms/public/{clientKey}/data?slug=…` serves published block values with CDN-cacheable headers. If the flag is off or the client key is unknown the endpoint returns **404**, leaking neither existence nor policy. Collection reads can likewise be opened per collection via `AllowAnonymousRead`.
+
+On collection read routes the two halves of `Cache-Control` answer different questions. **Shared or private** is a property of the *content*: a collection with `AllowAnonymousRead` may sit in a CDN, one without it may not, no matter who asked. **Fresh or stored** is a property of the *caller*: only a holder of `content:write` sees draft overlays, so only they get `no-store`.
+
+| Caller | Public collection | Private collection |
+|---|---|---|
+| anonymous | `public, max-age=60, stale-while-revalidate=300` | 401 |
+| `content:read` | `public, max-age=60, stale-while-revalidate=300` | `private, max-age=60` |
+| `content:write` | `private, no-store` | `private, no-store` |
+
+All of them send `Vary: Authorization, X-Service-Key`, which must list **both** headers: a service key travels in either, so a cache keyed on only one could serve a private collection to a caller who presented no credential. A `content:read` principal also skips the per-item draft lookup entirely, so a render key costs zero Redis round-trips per item. The page endpoints (`/cms/content`, `/cms/data`) send no cache headers, so nothing caches them.
 
 ## Architecture
 

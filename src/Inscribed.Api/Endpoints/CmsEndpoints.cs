@@ -3,6 +3,7 @@ using Inscribed.Api.Authentication;
 using Inscribed.Application.Contracts.Requests;
 using Inscribed.Application.Services;
 using Inscribed.Auth.Storage.Repositories;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inscribed.Api.Endpoints;
 
@@ -31,7 +32,7 @@ public static class CmsEndpoints
 
         var group = app.MapGroup("/cms");
 
-        group.MapGet("/content", async (string? slug, HttpContext context, IContentService service, CancellationToken ct) =>
+        group.MapGet("/content", async (string? slug, HttpContext context, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -44,7 +45,10 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(slug))
                 return Results.BadRequest("Slug is required.");
 
-            var response = await service.GetBySlugAsync(clientId, userId, slug, ct);
+            var response = (await authorization.AuthorizeAsync(context.User, "ContentWrite")).Succeeded
+                ? await service.GetBySlugAsync(clientId, userId, slug, ct)
+                : await service.GetDataBySlugAsync(clientId, slug, ct);
+
             return Results.Ok(response);
         }).RequireAuthorization("ContentRead");
 
