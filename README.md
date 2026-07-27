@@ -64,7 +64,7 @@ This is the **self-hosted Docker path** ending with content synced and readable 
 
 1. Create a Google OAuth client (type: web application). The authorized redirect URI must be exactly `<AUTH_ISSUER>/auth/google/callback`; for a local trial that is `http://localhost:5000/auth/google/callback`.
 
-2. Copy the environment template and fill it in. `BOOTSTRAP_ADMIN_EMAIL` is the Google account that will receive `cms:admin` on first login without needing a membership; `ADMIN_CONSOLE_ORIGIN` is the origin your admin panel (or, for a smoke test, any page you control) runs on.
+2. Copy the environment template and fill it in. `BOOTSTRAP_ADMIN_EMAIL` is the Google account that will receive `tenant:admin` on first login without needing a membership; `ADMIN_CONSOLE_ORIGIN` is the origin your admin panel (or, for a smoke test, any page you control) runs on.
 
    ```sh
    cp .env.example .env
@@ -113,7 +113,7 @@ This is the **self-hosted Docker path** ending with content synced and readable 
 
    curl -X POST http://localhost:5000/admin/clients/my-site/service-keys \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-     -d '{"name":"deploy","roles":["cms:access"]}'
+     -d '{"name":"deploy","roles":["schema:sync"]}'
    # → { "id": "...", "keyPrefix": "ink_live_...", "key": "ink_live_..." }
    #   the raw key is shown ONCE in this response; store it now
    ```
@@ -214,15 +214,18 @@ Three credentials exist, each with a distinct job:
 
 Humans sign in with Google (`/auth/login` → callback → refresh cookie); Inscribed then issues its own tokens, so roles and tenancy live in **your** database, not Google's. Machines use service keys; a policy scheme routes each request to the right authentication handler, so every endpoint accepts both without knowing the difference.
 
-Roles are computed at refresh time from memberships (plus the bootstrap-admin allowlist), so a role change takes effect within one access-token lifetime:
+Authorization is a **set of capabilities**, not a rank. A principal holds any combination, and both credential kinds draw from the same vocabulary. Capabilities are computed at refresh time from memberships (plus the bootstrap-admin allowlist), so a grant change takes effect within one access-token lifetime:
 
-| Role | Grants |
-|---|---|
-| `cms:access` | editor: read and write CMS content |
-| `cms:read` | read-only; meant for render service keys of private sites |
-| `cms:admin` | `/admin/*`: clients, memberships, service keys, signing-key rotation |
+| Capability | Grants | Typical holder |
+|---|---|---|
+| `content:read` | read published pages and collections | render service key, SSR frontend |
+| `content:write` | page content and drafts, collection items and drafts | editors |
+| `schema:sync` | `POST /cms/sync` only | deploy pipeline |
+| `tenant:admin` | `/admin/*`: clients, memberships, service keys, signing-key rotation | operators |
 
-`cms:admin` is for humans only: `/admin/*` can mint service keys, so a machine holding it could issue itself replacements and outlive revocation. Service-key principals are rejected there even if their stored role list says otherwise, and the bootstrap-admin allowlist only applies to logins through the admin client.
+Splitting `schema:sync` from `content:write` is the point of the model: reconciling the block manifest is a deploy-time machine job, editing values is a human one, and a render process needs neither. A render key that also carried write capability could prune your content if the SSR host were compromised.
+
+`tenant:admin` is for humans only: `/admin/*` can mint service keys, so a machine holding it could issue itself replacements and outlive revocation. Service-key principals are rejected there even if their stored capability list says otherwise, and the bootstrap-admin allowlist only applies to logins through the admin client.
 
 The full design rationale (rotation, reuse leeway, key rotation grace, cookie strategy) is documented in [docs/auth.md](docs/auth.md).
 
@@ -427,7 +430,6 @@ Configuration binds from the `Auth` section (typed, validated at startup) plus s
 | `Auth:AdminClientKey` | `admin` | key of the admin-console client seeded at startup |
 | `Auth:Cookie:{Name,SameSite,Secure}` | `inscribed_rt`, `Lax`, `true` | refresh cookie attributes; local HTTP dev needs `Secure=false` |
 | `Auth:Google:{ClientId,ClientSecret,CallbackPath}` | empty, empty, `/auth/google/callback` | Google OAuth client |
-| `Auth:Admin:Role` | `cms:admin` | role name required by `/admin/*` |
 | `Auth:Admin:BootstrapAdmins` | `[]` | e-mails that receive the admin role without a membership |
 | `Auth:Admin:ConsoleOrigins` | `[]` | allowed login redirect origins of the seeded admin client |
 

@@ -5,6 +5,7 @@ using Inscribed.Api.Startup;
 using Inscribed.Application;
 using Inscribed.Application.Services.Policies;
 using Inscribed.Auth;
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Endpoints;
 using Inscribed.Auth.Services;
 using Inscribed.Infrastructure;
@@ -19,22 +20,22 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("ContentRead", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireRole("cms:read", "cms:access");
+        policy.RequireRole(CapabilityCatalog.ContentRead, CapabilityCatalog.ContentWrite);
     })
     .AddPolicy("ContentWrite", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireRole("cms:access");
+        policy.RequireRole(CapabilityCatalog.ContentWrite);
     })
     .AddPolicy("SchemaSync", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireRole("cms:access");
+        policy.RequireRole(CapabilityCatalog.SchemaSync);
     })
     .AddPolicy("TenantAdmin", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireRole(builder.Configuration["Auth:Admin:Role"] ?? "cms:admin");
+        policy.RequireRole(CapabilityCatalog.TenantAdmin);
         policy.RequireClaim("email");
     });
 

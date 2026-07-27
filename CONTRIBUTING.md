@@ -21,7 +21,7 @@ Thanks for wanting to work on Inscribed. This document explains how the codebase
 
 1. **Content code never depends on auth.** `Inscribed.Application` and `Inscribed.Infrastructure` have no compile-time reference to `Inscribed.Auth`; the only bridge is the claim contract (`sub`, `azp`, `roles`, `name`, `email`) read in the API layer. The tell you are violating it: adding a `using Inscribed.Auth…` outside a composition root. `Inscribed.Api` and `Inscribed.Cli` are the composition roots, and both reference the auth module by design.
 
-2. **`Program.cs` is the only place that wires things together.** Authorization policies, CORS, DI composition and endpoint mapping live in the composition root. The tell: an authorization policy or role name being defined inside a module instead of `Program.cs`.
+2. **`Program.cs` is the only place that wires things together.** Authorization policies, CORS, DI composition and endpoint mapping live in the composition root. The tell: an authorization policy being defined inside a module instead of `Program.cs`. The capability *vocabulary* is the one exception and belongs to the identity module ([`CapabilityCatalog`](src/Inscribed.Auth/Authorization/CapabilityCatalog.cs)): grants are minted and validated there, so a vocabulary that lived elsewhere could drift out of step with validation. Policies consume the catalog; they do not redefine it.
 
 3. **Entities protect their own invariants.** Domain and auth entities use a private constructor, a static factory (`Create`, `Issue`) that validates arguments, and mutation methods that bump `Version` for optimistic concurrency. The tell: a public setter, or code outside the entity mutating its state field by field.
 
@@ -137,7 +137,7 @@ There is **no test project yet**; adding one (xUnit under `tests/`) is welcome a
 - **No code comments.** The codebase is deliberately comment-free; names, types and structure carry the meaning. Put the "why" in the PR description or in `docs/`, not in the source.
 - **Contracts are `sealed record`s** in `Application/Contracts`; entities are `sealed class`es with private constructors and factories.
 - **Endpoints stay thin.** They read claims, validate presence of required inputs, call one service method, and translate the result; business rules and error decisions belong in `Application` services or entities.
-- **Endpoints reference policy names, never role names.** `RequireAuthorization("ContentWrite")`, not `RequireRole("cms:access")`; the mapping lives in `Program.cs`.
+- **Endpoints reference policy names, never capability names.** `RequireAuthorization("ContentWrite")`, not `RequireRole(CapabilityCatalog.ContentWrite)`; the mapping lives in `Program.cs`.
 - **Async all the way down**, with `CancellationToken` accepted (defaulted) on every service and repository method.
 - **Time is passed in, not sampled.** Entity methods take `DateTime utcNow` as a parameter; call sites sample `DateTime.UtcNow` once per operation.
 - **Every mutation bumps `Version`.** New entity methods that change state must increment it, or optimistic concurrency silently stops protecting that path.

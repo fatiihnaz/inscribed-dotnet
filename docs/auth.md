@@ -36,7 +36,7 @@ A **policy scheme** routes each request per its shape: requests presenting an `i
 
 ### Bootstrap
 
-On startup, in order: migrate both DbContexts, touch the signing key store (generates an RS256 key if none exists, so misconfiguration fails at boot rather than on the first request), seed the `admin` client. Seeding solves the cold-start deadlock: with zero clients nobody can log in, so nobody could become admin. E-mails in `Auth:Admin:BootstrapAdmins` receive `cms:admin` on login without a membership. The seeder is idempotent.
+On startup, in order: migrate both DbContexts, touch the signing key store (generates an RS256 key if none exists, so misconfiguration fails at boot rather than on the first request), seed the `admin` client. Seeding solves the cold-start deadlock: with zero clients nobody can log in, so nobody could become admin. E-mails in `Auth:Admin:BootstrapAdmins` receive `tenant:admin` on login without a membership. The seeder is idempotent.
 
 ### Google login
 
@@ -72,19 +72,26 @@ The handler looks the key up by its first 16 characters (`KeyPrefix`, indexed), 
 
 `POST /admin/signing-keys/rotate`: a new key is generated and signs from that moment; the old key stays valid for verification for a **1-hour grace** (in-flight access tokens live at most 15 minutes plus clock skew), then drops out of JWKS. Validation keys are cached for 5 minutes, and an unknown `kid` triggers an immediate reload with a 30-second floor (so forged kids cannot hammer the DB). Rotation therefore propagates in seconds, restart-free, across multiple instances.
 
-## Role model
+## Capability model
 
-| Role | Grants | Typical holder |
+Authorization is a set, not a rank. A principal holds any combination of four capabilities, and memberships and service keys draw from the same vocabulary:
+
+| Capability | Grants | Typical holder |
 |---|---|---|
-| `cms:access` | read + write CMS content | editors, deploy-pipeline keys |
-| `cms:read` | read-only (`ContentRead` accepts either role) | render keys of private sites |
-| `cms:admin` | `/admin/*` | operators |
+| `content:read` | published pages and collections (`ContentRead` accepts this or `content:write`) | render keys, SSR frontends |
+| `content:write` | page content and drafts, collection items and drafts | editors |
+| `schema:sync` | `POST /cms/sync` only | deploy pipelines |
+| `tenant:admin` | `/admin/*` | operators |
+
+The axis that matters is *who the principal is*, not how much power it has. Editing content values is always a human acting through a console; reconciling the block manifest is always a machine acting at deploy time; rendering needs neither. Collapsing the first two into one grant (as the former `cms:access` did) forced render and deploy credentials to carry each other's power, so a compromised SSR host could prune content through `/cms/sync`.
+
+The vocabulary lives in [`CapabilityCatalog`](../src/Inscribed.Auth/Authorization/CapabilityCatalog.cs) inside the auth module, because that is where grants are minted and validated; a replacement identity provider must emit the same strings. The **policies** that consume it stay in [Program.cs](../src/Inscribed.Api/Program.cs): what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
+
+The claim is still named `roles` and the columns are still `Roles`. That is transport and storage naming, fixed by the JWT convention that `RequireRole` reads through `RoleClaimType`; `capabilities` is the vocabulary name used by the admin API, the CLI and these docs. Renaming the columns would buy nothing and cost a schema migration.
 
 Admin endpoints ignore `azp`: an admin manages all clients regardless of which client they logged in through, while content editing still requires a real membership on the target client. Public sites need no role at all once the client's `AllowAnonymousContentRead` flag is on; that flag is tenant policy, changed by an admin (`PUT /admin/clients/{key}`), never by sync.
 
-**Tenant administration is refused to machines.** Because `/admin/*` can mint service keys, a machine principal holding the admin role could issue itself replacements and survive revocation, which would make rotation meaningless. Two independent checks close that: `TenantAdmin` also requires the `email` claim, which service-key principals never carry, and `ServiceKeyService.ValidateAsync` strips the admin role from a key's claims even when the stored row still carries it, logging a warning naming the key. Stripping lives in `ValidateAsync` rather than the authentication handler because it is the single producer of that role array, so any future consumer inherits the guarantee. For the same reason the bootstrap-admin allowlist only grants the role in tokens minted for `Auth:AdminClientKey`: a bootstrap admin logging in through a tenant's own client gets that tenant's membership roles and nothing more.
-
-Authorization policies (`ContentRead`, `ContentWrite`, `SchemaSync`, `TenantAdmin`) are defined in [Program.cs](../src/Inscribed.Api/Program.cs), not inside the auth module: what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
+**Tenant administration is refused to machines.** Because `/admin/*` can mint service keys, a machine principal holding the admin role could issue itself replacements and survive revocation, which would make rotation meaningless. Two independent checks close that: `TenantAdmin` also requires the `email` claim, which service-key principals never carry, and `ServiceKeyService.ValidateAsync` strips every `CapabilityCatalog.HumanOnly` entry from a key's claims even when the stored row still carries it, logging a warning naming the key. Stripping lives in `ValidateAsync` rather than the authentication handler because it is the single producer of that capability array, so any future consumer inherits the guarantee. For the same reason the bootstrap-admin allowlist only grants `tenant:admin` in tokens minted for `Auth:AdminClientKey`: a bootstrap admin logging in through a tenant's own client gets that tenant's membership capabilities and nothing more.
 
 ## Storage
 
@@ -103,7 +110,6 @@ Auth tables are prefixed `auth_*`, live in their own `AuthDbContext` with a sepa
   "Cookie": { "Name": "inscribed_rt", "SameSite": "Lax", "Secure": true },
   "Google": { "ClientId": "", "ClientSecret": "", "CallbackPath": "/auth/google/callback" },
   "Admin": {
-    "Role": "cms:admin",
     "BootstrapAdmins": ["you@example.com"],
     "ConsoleOrigins": ["https://admin.example.com"]
   }
@@ -123,10 +129,10 @@ The reference end-to-end verification after auth changes:
 3. `/auth/login?clientKey=admin&redirectUri=…` with a bootstrap-admin Google account completes and sets the cookie.
 4. `POST /auth/refresh` returns an access token whose decoded payload carries `sub`, `azp`, `roles`, `name`, `email`.
 5. `POST /admin/clients/{key}/service-keys` returns the raw key once.
-6. A `cms:access` key gets 200 from `POST /cms/sync`; a `cms:read` key gets 200 from `GET /cms/data` but **403** from `POST /cms/sync`.
+6. A `schema:sync` key gets 200 from `POST /cms/sync`; a `content:read` key gets 200 from `GET /cms/data` but **403** from `POST /cms/sync`.
 7. With the client flag off, `GET /cms/public/{clientKey}/data` is 404; after `PUT /admin/clients/{key}` enables it, 200 with `Cache-Control: public`.
 8. Revoking the service key turns its next request into 401.
-9. A service key carrying the admin role gets **403** from `GET /admin/users` and logs a warning, while the same call with a bootstrap admin's access token returns 200. Logging in through a non-admin client and refreshing yields a token without the admin role.
+9. A service key carrying `tenant:admin` gets **403** from `GET /admin/users` and logs a warning, while the same call with a bootstrap admin's access token returns 200. Logging in through a non-admin client and refreshing yields a token without the admin role.
 
 ## Known limits
 

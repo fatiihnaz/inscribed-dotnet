@@ -43,8 +43,6 @@ public sealed class GoogleAuthOptions
 
 public sealed class AdminAuthOptions
 {
-    public string Role { get; set; } = "cms:admin";
-
     public string[] BootstrapAdmins { get; set; } = [];
 
     public string[] ConsoleOrigins { get; set; } = [];

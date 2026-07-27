@@ -27,6 +27,7 @@ internal sealed class ConfigureJwtBearerOptions : IConfigureNamedOptions<JwtBear
             ValidateAudience = true,
             ValidAudience = _options.Audience,
             ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
             ValidateIssuerSigningKey = true,
             NameClaimType = "name",
             RoleClaimType = "roles",

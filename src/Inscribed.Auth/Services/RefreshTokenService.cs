@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Entities;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Storage.Repositories;
@@ -134,9 +135,9 @@ internal sealed class RefreshTokenService : IRefreshTokenService
 
         if (string.Equals(client.Key, _options.AdminClientKey, StringComparison.Ordinal)
             && _options.Admin.BootstrapAdmins.Contains(user.Email, StringComparer.OrdinalIgnoreCase)
-            && !roles.Contains(_options.Admin.Role))
+            && !roles.Contains(CapabilityCatalog.TenantAdmin))
         {
-            roles.Add(_options.Admin.Role);
+            roles.Add(CapabilityCatalog.TenantAdmin);
         }
 
         return roles;
