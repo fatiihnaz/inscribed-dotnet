@@ -76,6 +76,7 @@ using (var scope = app.Services.CreateScope())
     else
         DatabaseMigrator.EnsureUpToDate(scope.ServiceProvider);
 
+    scope.ServiceProvider.ValidateInscribedTokenIssuance();
     scope.ServiceProvider.GetRequiredService<ISigningKeyStore>().GetPublicJwks();
     scope.ServiceProvider.GetRequiredService<ICollectionPolicyResolver>();
     scope.ServiceProvider.SeedInscribedAuth();

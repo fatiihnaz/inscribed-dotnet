@@ -18,13 +18,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInscribedAuth(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<AuthOptions>()
-            .Bind(configuration.GetSection("Auth"))
-            .Validate<IHostEnvironment>(
-                (options, env) => !env.IsProduction()
-                    || (!string.IsNullOrWhiteSpace(options.Issuer)
-                        && !options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase)),
-                "Auth:Issuer must be set to the public URL in Production.")
-            .ValidateOnStart();
+            .Bind(configuration.GetSection("Auth"));
 
         var connectionString = configuration.GetConnectionString("Default")
             ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
@@ -62,6 +56,21 @@ public static class DependencyInjection
             })
             .AddJwtBearer()
             .AddScheme<AuthenticationSchemeOptions, ServiceTokenAuthenticationHandler>(InscribedAuthSchemes.ServiceToken, null);
+
+        return services;
+    }
+
+    public static IServiceProvider ValidateInscribedTokenIssuance(this IServiceProvider services)
+    {
+        var options = services.GetRequiredService<IOptions<AuthOptions>>().Value;
+        var environment = services.GetRequiredService<IHostEnvironment>();
+
+        if (environment.IsProduction()
+            && (string.IsNullOrWhiteSpace(options.Issuer)
+                || options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Auth:Issuer must be set to the public URL in Production.");
+        }
 
         return services;
     }

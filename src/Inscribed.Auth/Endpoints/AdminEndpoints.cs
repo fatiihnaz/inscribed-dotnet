@@ -46,8 +46,8 @@ public static class AdminEndpoints
 
         group.MapPost("/clients/{key}/memberships", async (string key, UpsertMembershipRequest request, IAdminService admin, CancellationToken ct) =>
         {
-            var membership = await admin.UpsertMembershipAsync(key, request.Email, request.Roles, ct);
-            return Results.Ok(new { Id = membership.UserId, membership.Email, membership.ClientKey, membership.Roles });
+            var membership = await admin.UpsertMembershipAsync(key, request.Email, request.Capabilities, ct);
+            return Results.Ok(new { Id = membership.UserId, membership.Email, membership.ClientKey, membership.Capabilities });
         });
 
         group.MapDelete("/clients/{key}/memberships/{email}", async (string key, string email, IAdminService admin, CancellationToken ct) =>
@@ -64,7 +64,7 @@ public static class AdminEndpoints
                 serviceKey.Id,
                 serviceKey.Name,
                 serviceKey.KeyPrefix,
-                serviceKey.Roles,
+                Capabilities = serviceKey.Roles,
                 serviceKey.ExpiresAt,
                 serviceKey.RevokedAt,
                 serviceKey.LastUsedAt,
@@ -74,7 +74,7 @@ public static class AdminEndpoints
 
         group.MapPost("/clients/{key}/service-keys", async (string key, CreateServiceKeyRequest request, IAdminService admin, CancellationToken ct) =>
         {
-            var created = await admin.CreateServiceKeyAsync(key, request.Name, request.Roles, request.ExpiresAt, ct);
+            var created = await admin.CreateServiceKeyAsync(key, request.Name, request.Capabilities, request.ExpiresAt, ct);
             return Results.Created($"/admin/clients/{key}/service-keys/{created.Id}", new
             {
                 created.Id,
@@ -111,6 +111,6 @@ public sealed record CreateClientRequest(string Key, string Name, string[]? Allo
 
 public sealed record UpdateClientRequest(string Name, string[]? AllowedRedirectOrigins, bool? IsActive, bool? AllowAnonymousContentRead);
 
-public sealed record UpsertMembershipRequest(string Email, string[]? Roles);
+public sealed record UpsertMembershipRequest(string Email, string[]? Capabilities);
 
-public sealed record CreateServiceKeyRequest(string Name, string[]? Roles, DateTime? ExpiresAt);
+public sealed record CreateServiceKeyRequest(string Name, string[]? Capabilities, DateTime? ExpiresAt);

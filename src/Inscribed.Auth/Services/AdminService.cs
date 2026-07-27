@@ -1,6 +1,9 @@
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Entities;
+using Inscribed.Auth.Options;
 using Inscribed.Auth.Storage.Repositories;
 using Inscribed.Domain.Exceptions;
+using Microsoft.Extensions.Options;
 
 namespace Inscribed.Auth.Services;
 
@@ -10,15 +13,15 @@ public interface IAdminService
     Task<IReadOnlyList<Client>> ListClientsAsync(CancellationToken cancellationToken = default);
     Task<Client> CreateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, CancellationToken cancellationToken = default);
     Task<Client> UpdateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, bool? isActive, bool? allowAnonymousContentRead, CancellationToken cancellationToken = default);
-    Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? roles, CancellationToken cancellationToken = default);
+    Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? capabilities, CancellationToken cancellationToken = default);
     Task RemoveMembershipAsync(string clientKey, string email, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ServiceKey>> ListServiceKeysAsync(string clientKey, CancellationToken cancellationToken = default);
-    Task<ServiceKeyCreated> CreateServiceKeyAsync(string clientKey, string name, IReadOnlyList<string>? roles, DateTime? expiresAt, CancellationToken cancellationToken = default);
+    Task<ServiceKeyCreated> CreateServiceKeyAsync(string clientKey, string name, IReadOnlyList<string>? capabilities, DateTime? expiresAt, CancellationToken cancellationToken = default);
     Task RevokeServiceKeyAsync(string clientKey, Guid id, CancellationToken cancellationToken = default);
     string RotateSigningKey();
 }
 
-public sealed record MembershipResult(Guid UserId, string Email, string ClientKey, string[] Roles);
+public sealed record MembershipResult(Guid UserId, string Email, string ClientKey, string[] Capabilities);
 
 public sealed record ServiceKeyCreated(Guid Id, string KeyPrefix, string RawKey);
 
@@ -30,6 +33,7 @@ internal sealed class AdminService : IAdminService
     private readonly IServiceKeyRepository _serviceKeys;
     private readonly IServiceKeyService _serviceKeyService;
     private readonly ISigningKeyStore _signingKeys;
+    private readonly AuthOptions _options;
 
     public AdminService(
         IUserRepository users,
@@ -37,8 +41,10 @@ internal sealed class AdminService : IAdminService
         IMembershipRepository memberships,
         IServiceKeyRepository serviceKeys,
         IServiceKeyService serviceKeyService,
-        ISigningKeyStore signingKeys)
+        ISigningKeyStore signingKeys,
+        IOptions<AuthOptions> options)
     {
+        _options = options.Value;
         _users = users;
         _clients = clients;
         _memberships = memberships;
@@ -97,7 +103,7 @@ internal sealed class AdminService : IAdminService
         return client;
     }
 
-    public async Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? roles, CancellationToken cancellationToken = default)
+    public async Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? capabilities, CancellationToken cancellationToken = default)
     {
         var client = await _clients.GetByKeyAsync(clientKey, cancellationToken);
         if (client is null)
@@ -116,16 +122,23 @@ internal sealed class AdminService : IAdminService
             throw new NotFoundException($"No user with e-mail '{email}'. Users are created on first login.");
         }
 
+        var resolved = CapabilityCatalog.Resolve(capabilities, GrantTarget.Membership);
+        if (resolved.Intersect(CapabilityCatalog.HumanOnly, StringComparer.Ordinal).Any()
+            && !string.Equals(client.Key, _options.AdminClientKey, StringComparison.Ordinal))
+        {
+            throw new ValidationException([$"{string.Join(", ", CapabilityCatalog.HumanOnly)} may only be granted on the '{_options.AdminClientKey}' client: administration spans every tenant."]);
+        }
+
         var now = DateTime.UtcNow;
         var membership = await _memberships.GetAsync(user.Id, client.Id, cancellationToken);
         if (membership is null)
         {
-            membership = Membership.Create(user.Id, client.Id, roles ?? [], now);
+            membership = Membership.Create(user.Id, client.Id, resolved, now);
             _memberships.Add(membership);
         }
         else
         {
-            membership.SetRoles(roles ?? [], now);
+            membership.SetRoles(resolved, now);
         }
 
         await _memberships.SaveChangesAsync(cancellationToken);
@@ -146,7 +159,7 @@ internal sealed class AdminService : IAdminService
         await _memberships.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<ServiceKeyCreated> CreateServiceKeyAsync(string clientKey, string name, IReadOnlyList<string>? roles, DateTime? expiresAt, CancellationToken cancellationToken = default)
+    public async Task<ServiceKeyCreated> CreateServiceKeyAsync(string clientKey, string name, IReadOnlyList<string>? capabilities, DateTime? expiresAt, CancellationToken cancellationToken = default)
     {
         var client = await _clients.GetByKeyAsync(clientKey, cancellationToken);
         if (client is null)
@@ -159,7 +172,9 @@ internal sealed class AdminService : IAdminService
             throw new ValidationException(["name is required."]);
         }
 
-        var created = await _serviceKeyService.CreateAsync(client.Key, name, roles ?? [], expiresAt, cancellationToken);
+        var resolved = CapabilityCatalog.Resolve(capabilities, GrantTarget.ServiceKey);
+
+        var created = await _serviceKeyService.CreateAsync(client.Key, name, resolved, expiresAt, cancellationToken);
         return new ServiceKeyCreated(created.Id, created.KeyPrefix, created.RawKey);
     }
 

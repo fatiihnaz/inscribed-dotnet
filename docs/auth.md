@@ -1,10 +1,10 @@
 # Authentication and identity
 
-How Inscribed identifies humans and machines, why it is built this way, and how to verify it end to end. The consumer-facing summary lives in the [README](../README.md#identity-tokens-and-roles); this document is the deep dive for people changing the auth module.
+How Inscribed identifies humans and machines, why it is built this way, and how to verify it end to end. The consumer-facing summary lives in the [README](../README.md#identity-tokens-and-capabilities); this document is the deep dive for people changing the auth module.
 
 ## Overview
 
-Inscribed wears two hats. Toward Google it is an **OAuth client**: Google's only job is to answer "this person really is fatih@gmail.com". Toward everything else it is an **authorization server**: it mints its own RS256 access tokens carrying its own roles and tenant key, and publishes the public keys as standard JWKS at `/.well-known/jwks.json`. The alternative (validating Google's tokens directly) was rejected because roles and tenancy could not live in Google's claim model; owning the token means adding another login provider later changes nothing on the CMS side.
+Inscribed wears two hats. Toward Google it is an **OAuth client**: Google's only job is to answer "this person really is fatih@gmail.com". Toward everything else it is an **authorization server**: it mints its own RS256 access tokens carrying its own capabilities and tenant key, and publishes the public keys as standard JWKS at `/.well-known/jwks.json`. The alternative (validating Google's tokens directly) was rejected because capabilities and tenancy could not live in Google's claim model; owning the token means adding another login provider later changes nothing on the CMS side.
 
 ## The claim contract
 
@@ -14,7 +14,7 @@ Everything the CMS reads from an authenticated request fits in five claims. As l
 |---|---|---|
 | `sub` | user id, or `service:{id}` for service keys | `updatedBy`, draft ownership |
 | `azp` | tenant key (`Client.Key`) | all data isolation |
-| `roles` | authorization roles | `ContentRead` / `ContentWrite` / `SchemaSync` / `TenantAdmin` policies |
+| `roles` | granted capabilities | `ContentRead` / `ContentWrite` / `SchemaSync` / `TenantAdmin` policies |
 | `name` | display name (falls back to e-mail); service keys carry the key name | panel display, `Identity.Name` |
 | `email` | user e-mail; absent on service-key principals | panel display; proves a human principal to `TenantAdmin` |
 
@@ -59,14 +59,14 @@ On startup, in order: migrate both DbContexts, touch the signing key store (gene
 1. The raw cookie value is hashed and looked up; unknown hash is 401.
 2. **Reuse detection:** if the found row is already revoked, someone is replaying an old token. Since the victim cannot be told apart from the attacker, the whole `FamilyId` lineage is revoked in one update and the response is 401; the real user logs in again, the attacker is locked out.
 3. **Reuse leeway** (`Auth:ReuseLeewaySeconds`, default 30): a replay within the window is treated as a network race instead, but only if the row was revoked *by rotation* (never by logout) and its successor is still live. The typical trigger is a refresh response lost in transit followed by a client retry, which is byte-identical to an attack and cannot be disambiguated client-side. The undelivered successor is revoked and a fresh rotation is issued from the same family.
-4. **Roles are recomputed here**, from memberships plus the bootstrap-admin list. This is the practical answer to unrevocable access tokens: a role change takes effect within one access-token lifetime.
+4. **Capabilities are recomputed here**, from memberships plus the bootstrap-admin list. This is the practical answer to unrevocable access tokens: a grant change takes effect within one access-token lifetime.
 5. The old row is revoked, a new refresh + access pair is issued. Two concurrent refreshes race on the row's `Version`; the loser gets a silent 401 (double-spend protection).
 
 `POST /auth/logout` revokes the refresh token and deletes the cookie. An access token already in the wild stays technically valid for up to its remaining lifetime; checking a blacklist on every request would forfeit the point of JWTs, and a 15-minute window is the accepted industry trade-off.
 
 ### Service keys (M2M)
 
-The handler looks the key up by its first 16 characters (`KeyPrefix`, indexed), compares the full SHA-256 with `CryptographicOperations.FixedTimeEquals` (timing-attack defense), and checks revocation, expiry and the owning client's active flag. `LastUsedAt` is written at most once a minute via `ExecuteUpdate`, bypassing `Version`, so telemetry cannot cause concurrency conflicts under parallel requests. The resulting principal carries `azp` = the key's client, `roles` = the key's roles, `sub` = `service:{id}`, `name` = the key's name.
+The handler looks the key up by its first 16 characters (`KeyPrefix`, indexed), compares the full SHA-256 with `CryptographicOperations.FixedTimeEquals` (timing-attack defense), and checks revocation, expiry and the owning client's active flag. `LastUsedAt` is written at most once a minute via `ExecuteUpdate`, bypassing `Version`, so telemetry cannot cause concurrency conflicts under parallel requests. The resulting principal carries `azp` = the key's client, `roles` = the key's capabilities, `sub` = `service:{id}`, `name` = the key's name.
 
 ### Signing-key rotation
 

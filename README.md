@@ -25,7 +25,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
   - [Sync: the manifest reconcile](#sync-the-manifest-reconcile)
   - [Drafts](#drafts)
   - [Collections](#collections)
-  - [Identity, tokens and roles](#identity-tokens-and-roles)
+  - [Identity, tokens and capabilities](#identity-tokens-and-capabilities)
   - [Anonymous public reads and caching](#anonymous-public-reads-and-caching)
 - [Architecture](#architecture)
 - [API surface](#api-surface)
@@ -39,9 +39,9 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 ## Features
 
 - **Code-first content structure.** The frontend repo declares which blocks exist; `POST /cms/sync` is an **authoritative whole-state reconcile**, not a patch. Blocks missing from the manifest are archived (never hard-deleted) and restored automatically if they reappear.
-- **Self-issued identity provider.** Google OAuth (authorization code + PKCE) for login only; Inscribed mints its own RS256 access tokens with tenant and role claims, publishes JWKS at `/.well-known/jwks.json`, and rotates signing keys at runtime without restarts.
+- **Self-issued identity provider.** Google OAuth (authorization code + PKCE) for login only; Inscribed mints its own RS256 access tokens with tenant and capability claims, publishes JWKS at `/.well-known/jwks.json`, and rotates signing keys at runtime without restarts.
 - **Refresh token rotation with reuse detection.** Refresh tokens are opaque, hashed at rest, rotated on every use, and family-revoked on suspected theft, with a configurable leeway window that tolerates network-retry races instead of logging the user out.
-- **Machine-to-machine service keys.** `ink_live_…` keys are hashed at rest, compared in constant time, instantly revocable, and carry their own roles; a deploy pipeline syncs content with a key, no login dance.
+- **Machine-to-machine service keys.** `ink_live_…` keys are hashed at rest, compared in constant time, instantly revocable, and carry their own capabilities; a deploy pipeline syncs content with a key, no login dance.
 - **Per-user drafts in Redis.** Editors autosave drafts that overlay published values in their own reads only; publishing clears the draft. Draft data never touches PostgreSQL.
 - **Schema-validated collections.** Each collection is a mounted JSON definition file: field schema, slug strategy (user-defined or auto-generated from a field), optional anonymous reads. Definitions are strictly validated: the app refuses to boot on a broken file rather than skip it. Payloads are validated and unknown fields rejected.
 - **Declarative external data.** A collection file can enrich items from external APIs at read time (URL template + response field map), with response caching and timeouts by default; an upstream outage never fails a read. Credentials are named config entries (API key or OAuth2 client credentials with self-managed tokens); secrets never appear in definition files or logs.
@@ -113,10 +113,12 @@ This is the **self-hosted Docker path** ending with content synced and readable 
 
    curl -X POST http://localhost:5000/admin/clients/my-site/service-keys \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-     -d '{"name":"deploy","roles":["schema:sync"]}'
+     -d '{"name":"deploy","capabilities":["deploy","render"]}'
    # → { "id": "...", "keyPrefix": "ink_live_...", "key": "ink_live_..." }
    #   the raw key is shown ONCE in this response; store it now
    ```
+
+   > **Note:** presets compose, so this one key can both sync and read back, which keeps the trial to a single credential. In production give the pipeline `deploy` and the rendering site `render` as **separate** keys: a leaked render key then cannot reconcile your schema away.
 
    ```sh
    curl -X POST http://localhost:5000/cms/sync \
@@ -130,7 +132,7 @@ This is the **self-hosted Docker path** ending with content synced and readable 
 7. Read it back:
 
    ```sh
-   curl "http://localhost:5000/cms/content?slug=home" -H "X-Service-Key: ink_live_..."
+   curl "http://localhost:5000/cms/data?slug=home" -H "X-Service-Key: ink_live_..."
    ```
 
 You now have a running CMS with one tenant, one synced page, and a working admin identity. Next steps: grant editors access with `POST /admin/clients/{key}/memberships`, wire an editor panel against the API, and read [Core concepts](#core-concepts) for the content model.
@@ -139,7 +141,7 @@ You now have a running CMS with one tenant, one synced page, and a working admin
 
 ### Tenancy: clients
 
-A **Client** is a tenant: one site or app with its own key, allowed login redirect origins, and page content. The client key travels in the **`azp`** claim of every access token and every service key principal, and page reads/writes are scoped by it. Users are global; a **Membership** binds a user to a client with roles, so the same person can be an editor on one site and nothing on another. Clients are managed through `/admin/clients`; the `admin` client used by the admin console itself is seeded at startup.
+A **Client** is a tenant: one site or app with its own key, allowed login redirect origins, and page content. The client key travels in the **`azp`** claim of every access token and every service key principal, and page reads/writes are scoped by it. Users are global; a **Membership** binds a user to a client with capabilities, so the same person can be an editor on one site and nothing on another. Clients are managed through `/admin/clients`; the `admin` client used by the admin console itself is seeded at startup.
 
 > **One limit:** collection items are currently **not** tenant-scoped; a collection's data is shared across all clients of an installation. Page content blocks are fully scoped per client.
 
@@ -202,7 +204,7 @@ Definitions are validated strictly at startup and a broken file **aborts boot** 
 
 Writes are validated against the schema: wrong types and unknown fields are rejected with **400** (drafts skip only the `Required` check). Listing supports `offset`/`limit` paging (limit clamped to 100) and equality filters on `Filterable` fields via plain query parameters, e.g. `GET /cms/collections/News/?featured=true&tags=release`. `GET /cms/collections/me` tells a panel which collections the current user may create in, with their schemas, so the editor UI is fully schema-driven.
 
-### Identity, tokens and roles
+### Identity, tokens and capabilities
 
 Three credentials exist, each with a distinct job:
 
@@ -212,7 +214,7 @@ Three credentials exist, each with a distinct job:
 | Refresh token | opaque, hashed in DB | 30 days (config) | yes, instantly | httpOnly cookie, `Path=/auth` |
 | Service key | opaque `ink_live_…`, hashed in DB | optional expiry | yes, instantly | `X-Service-Key` or `Authorization: Bearer` |
 
-Humans sign in with Google (`/auth/login` → callback → refresh cookie); Inscribed then issues its own tokens, so roles and tenancy live in **your** database, not Google's. Machines use service keys; a policy scheme routes each request to the right authentication handler, so every endpoint accepts both without knowing the difference.
+Humans sign in with Google (`/auth/login` → callback → refresh cookie); Inscribed then issues its own tokens, so capabilities and tenancy live in **your** database, not Google's. Machines use service keys; a policy scheme routes each request to the right authentication handler, so every endpoint accepts both without knowing the difference.
 
 Authorization is a **set of capabilities**, not a rank. A principal holds any combination, and both credential kinds draw from the same vocabulary. Capabilities are computed at refresh time from memberships (plus the bootstrap-admin allowlist), so a grant change takes effect within one access-token lifetime:
 
@@ -366,7 +368,7 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 |---|---|
 | `GET /admin/users` | list users (created on first login) |
 | `GET`/`POST /admin/clients`, `PUT /admin/clients/{key}` | tenant CRUD incl. `allowAnonymousContentRead`, `isActive` |
-| `POST /admin/clients/{key}/memberships` | upsert a user's roles on a client |
+| `POST /admin/clients/{key}/memberships` | upsert a user's capabilities on a client |
 | `DELETE /admin/clients/{key}/memberships/{email}` | remove membership |
 | `GET`/`POST /admin/clients/{key}/service-keys` | list (prefix + metadata only) / create (raw key shown once) |
 | `DELETE /admin/clients/{key}/service-keys/{id}` | revoke a service key |
@@ -400,10 +402,10 @@ docker compose --profile admin run --rm admin client list             # one-shot
 | `client list` | tenants, with active state and anonymous-read flag |
 | `client create --key --name [--origins a,b]` | create a tenant |
 | `client update --key --name [--origins a,b] [--active] [--anonymous-read]` | update a tenant; omitted flags keep their current value |
-| `membership set --client --email [--roles a,b]` | set a user's roles on a tenant (**replaces** the existing roles) |
+| `membership set --client --email [--capabilities a,b]` | set a user's capabilities on a tenant (**replaces** the existing set) |
 | `membership remove --client --email` | remove a membership |
-| `service-key list --client` | keys with prefix, roles and state; never the secret |
-| `service-key create --client --name [--roles a,b] [--expires date]` | mint a key |
+| `service-key list --client` | keys with prefix, capabilities and state; never the secret |
+| `service-key create --client --name --capabilities a,b [--expires date]` | mint a key; presets (`render`, `deploy`, `editor`) expand in place |
 | `service-key revoke --client --id` | revoke a key immediately |
 | `signing-key rotate` | rotate the RS256 signing key |
 
