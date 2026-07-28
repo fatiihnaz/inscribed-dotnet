@@ -246,12 +246,22 @@ public sealed class CollectionService : ICollectionService
         await _drafts.SaveNewDraftAsync(key, userId, slug, validated, cancellationToken);
     }
 
+    public Task DiscardItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default)
+    {
+        var policy = _policyResolver.Resolve(key);
+        return _drafts.DeleteItemDraftAsync(policy.Key, SlugNormalizer.NormalizeBlockPath(slug), userId, cancellationToken);
+    }
+
+    public Task DiscardNewDraftAsync(string key, string userId, CancellationToken cancellationToken = default)
+    {
+        var policy = _policyResolver.Resolve(key);
+        return _drafts.DeleteNewDraftAsync(policy.Key, userId, cancellationToken);
+    }
+
     private static JsonNode? ResolveItemDraft(JsonNode published, JsonNode? draft)
     {
         if (draft is null) return null;
-        var p = JsonNode.Parse(published.ToJsonString());
-        var d = JsonNode.Parse(draft.ToJsonString());
-        return JsonNode.DeepEquals(d, p) ? null : draft;
+        return JsonNode.DeepEquals(draft, published) ? null : draft;
     }
 
     private static JsonNode? ResolveNewDraft(JsonNode? draft)

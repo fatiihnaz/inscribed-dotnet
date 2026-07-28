@@ -40,7 +40,7 @@ public sealed class ContentService : IContentService
                 JsonNode? draftValue = null;
                 if (draftLookup is not null
                     && draftLookup.TryGetValue(block.BlockPath, out var overlayValue)
-                    && overlayValue?.ToJsonString() != block.Value.ToJsonString())
+                    && !JsonNode.DeepEquals(overlayValue, block.Value))
                 {
                     draftValue = overlayValue;
                 }
@@ -96,7 +96,7 @@ public sealed class ContentService : IContentService
             if (!blocksByPath.TryGetValue(blockPath, out var block))
                 throw new NotFoundException($"Block '{blockPath}' not found for slug '{normalizedSlug}'.");
 
-            if (block.Value.ToJsonString() == item.Value.ToJsonString())
+            if (JsonNode.DeepEquals(block.Value, item.Value))
             {
                 unchanged++; continue;
             }
@@ -214,8 +214,21 @@ public sealed class ContentService : IContentService
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(request.Slug);
 
-        var draftBlocks = request.Blocks
-            .Select(b => new DraftBlock(SlugNormalizer.NormalizeBlockPath(b.BlockPath), b.Value))
+        var existing = await _draftService.GetDraftAsync(clientId, userId, normalizedSlug, cancellationToken);
+
+        var overlay = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
+
+        if (existing is not null)
+        {
+            foreach (var block in existing)
+                overlay[block.BlockPath] = block.Value;
+        }
+
+        foreach (var item in request.Blocks)
+            overlay[SlugNormalizer.NormalizeBlockPath(item.BlockPath)] = item.Value;
+
+        var draftBlocks = overlay
+            .Select(entry => new DraftBlock(entry.Key, entry.Value))
             .ToList();
 
         await _draftService.SaveDraftAsync(clientId, userId, normalizedSlug, draftBlocks, cancellationToken);

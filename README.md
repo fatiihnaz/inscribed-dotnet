@@ -170,7 +170,7 @@ Slugs entirely absent from the manifest are archived and reported back as `prune
 
 ### Drafts
 
-Drafts are **per user, per page (or per collection item), stored in Redis**, and invisible to everyone but their author. `PUT /cms/draft` saves the overlay; `GET /cms/content` returns each block's published `value` plus a `draftValue` only where the caller's draft actually differs. Publishing via `PUT /cms/content` deletes the caller's draft for that page. Collections have the same mechanism per item, plus a **new-item draft** for content that does not have a slug yet.
+Drafts are **per user, per page (or per collection item), stored in Redis**, and invisible to everyone but their author. `PUT /cms/draft` merges the blocks it receives into the caller's existing overlay for that slug, so an editor can autosave one block at a time without dropping the others; `GET /cms/content` returns each block's published `value` plus a `draftValue` only where the caller's draft actually differs. Sending a block its published value therefore reverts it. `DELETE /cms/draft?slug=…` discards the whole page draft in one call, which is the honest way to abandon changes: echoing published values back would resurrect them as a real draft if someone else published in the meantime, since draft writes carry no version check. Publishing via `PUT /cms/content` deletes the caller's draft for that page too. Collections have the same mechanism per item, except an item draft is one whole-object form and is replaced, not merged, plus a **new-item draft** for content that does not have a slug yet.
 
 > **Note:** drafts are a cache-tier convenience, not durable storage; a Redis flush loses unsaved drafts but never published content.
 
@@ -345,7 +345,8 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 | `GET /cms/content?slug=` | ContentRead | published blocks; the caller's draft overlay is added only for `content:write` |
 | `GET /cms/public/{clientKey}/content?slug=` | anon\* | as above, credential-free, CDN-cacheable |
 | `PUT /cms/content` | ContentWrite | publish block values (optimistic concurrency) |
-| `PUT /cms/draft` | ContentWrite | save the caller's page draft |
+| `PUT /cms/draft` | ContentWrite | merge blocks into the caller's page draft |
+| `DELETE /cms/draft?slug=` | ContentWrite | discard the caller's whole page draft |
 | `POST /cms/sync` | SchemaSync | whole-state manifest reconcile |
 
 **Collections**
@@ -359,7 +360,9 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 | `POST /cms/collections/{key}/` | ContentWrite | create item (auto-generated slug collections) |
 | `PUT /cms/collections/{key}/{slug}` | ContentWrite | upsert item (user-defined slug collections) / update |
 | `PUT /cms/collections/{key}/{slug}/draft` | ContentWrite | save item draft |
+| `DELETE /cms/collections/{key}/{slug}/draft` | ContentWrite | discard item draft |
 | `POST /cms/collections/{key}/drafts` | ContentWrite | save draft for a not-yet-created item |
+| `DELETE /cms/collections/{key}/drafts` | ContentWrite | discard the not-yet-created item draft |
 
 **Auth**
 
