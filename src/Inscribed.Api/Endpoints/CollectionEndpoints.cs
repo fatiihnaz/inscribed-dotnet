@@ -75,6 +75,16 @@ public static class CollectionEndpoints
             return Results.NoContent();
         });
 
+        group.MapDelete("/drafts", async (string key, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            await service.DiscardNewDraftAsync(key, userId, ct);
+            return Results.NoContent();
+        });
+
         group.MapGet("/{slug}", async (string key, string slug, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
             var isPublic = service.AllowsAnonymousRead(key);
@@ -106,6 +116,16 @@ public static class CollectionEndpoints
                 return Results.Unauthorized();
 
             await service.SaveItemDraftAsync(key, slug, userId, context.User, request, ct);
+            return Results.NoContent();
+        });
+
+        group.MapDelete("/{slug}/draft", async (string key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            await service.DiscardItemDraftAsync(key, slug, userId, ct);
             return Results.NoContent();
         });
 

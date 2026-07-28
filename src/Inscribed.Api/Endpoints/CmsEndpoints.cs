@@ -92,6 +92,23 @@ public static class CmsEndpoints
             return Results.NoContent();
         }).RequireAuthorization("ContentWrite");
 
+        group.MapDelete("/draft", async (HttpContext context, string? slug, IContentService service, CancellationToken ct) =>
+        {
+            var clientId = context.User.GetClientId();
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Results.Unauthorized();
+
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(slug))
+                return Results.BadRequest("Slug is required.");
+
+            await service.DiscardDraftAsync(clientId, userId, slug, ct);
+            return Results.NoContent();
+        }).RequireAuthorization("ContentWrite");
+
         group.MapPost("/sync", async (HttpContext context, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IContentService service, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();

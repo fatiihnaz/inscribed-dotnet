@@ -31,4 +31,8 @@ public interface ICollectionService
     Task SaveItemDraftAsync(string key, string slug, string userId, ClaimsPrincipal user, SaveDraftRequest request, CancellationToken cancellationToken = default);
 
     Task SaveNewDraftAsync(string key, string userId, ClaimsPrincipal user, SaveNewDraftRequest request, CancellationToken cancellationToken = default);
+
+    Task DiscardItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default);
+
+    Task DiscardNewDraftAsync(string key, string userId, CancellationToken cancellationToken = default);
 }

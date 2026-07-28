@@ -14,4 +14,6 @@ public interface IContentService
     Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default);
 
     Task SaveDraftAsync(string clientId, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default);
+
+    Task DiscardDraftAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default);
 }

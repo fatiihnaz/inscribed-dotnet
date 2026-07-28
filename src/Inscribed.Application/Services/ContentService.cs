@@ -220,4 +220,7 @@ public sealed class ContentService : IContentService
 
         await _draftService.SaveDraftAsync(clientId, userId, normalizedSlug, draftBlocks, cancellationToken);
     }
+
+    public Task DiscardDraftAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default)
+        => _draftService.DeleteDraftAsync(clientId, userId, SlugNormalizer.NormalizeSlug(slug), cancellationToken);
 }
