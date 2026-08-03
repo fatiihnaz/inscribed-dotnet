@@ -5,5 +5,5 @@ namespace Inscribed.Application.Contracts.Requests;
 public sealed record UpdateBlockItem(
     string BlockPath,
     JsonNode Value,
-    int Version
+    int? Version
 );

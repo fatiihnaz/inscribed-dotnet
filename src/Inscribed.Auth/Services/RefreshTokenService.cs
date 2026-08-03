@@ -4,6 +4,7 @@ using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Entities;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Storage.Repositories;
+using Inscribed.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -106,7 +107,7 @@ internal sealed class RefreshTokenService : IRefreshTokenService
         {
             await _refreshTokens.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (ConcurrencyConflictException)
         {
             return null;
         }

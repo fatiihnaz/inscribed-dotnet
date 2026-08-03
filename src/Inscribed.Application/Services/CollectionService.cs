@@ -156,8 +156,13 @@ public sealed class CollectionService : ICollectionService
         }
         else
         {
-            if (request.Version is { } v && v != item.Version)
-                throw new ConcurrencyConflictException($"Version conflict on '{key}/{normalizedSlug}'. Expected {item.Version}, got {v}.");
+            if (request.Version is not { } v)
+                throw new ValidationException([$"Version is required when updating existing item '{key}/{normalizedSlug}'."]);
+
+            if (v != item.Version)
+                throw new ConcurrencyConflictException(
+                    $"Version conflict on '{key}/{normalizedSlug}'. Expected {item.Version}, got {v}.",
+                    [new VersionConflict($"{key}/{normalizedSlug}", item.Version, v)]);
 
             item.UpdateData(validated, updatedBy, utcNow);
         }

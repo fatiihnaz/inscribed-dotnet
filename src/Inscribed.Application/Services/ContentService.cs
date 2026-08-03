@@ -85,9 +85,10 @@ public sealed class ContentService : IContentService
         var blocks = await _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
         var blocksByPath = blocks.ToDictionary(b => b.BlockPath);
 
-        var updated = 0;
         var unchanged = 0;
-        var utcNow = DateTime.UtcNow;
+        var pending = new List<(ContentBlock Block, JsonNode Value)>();
+        var missingVersions = new List<string>();
+        var conflicts = new List<VersionConflict>();
 
         foreach (var item in request.Blocks)
         {
@@ -101,19 +102,40 @@ public sealed class ContentService : IContentService
                 unchanged++; continue;
             }
 
-            if (item.Version != block.Version)
-                throw new ConcurrencyConflictException($"Version conflict on block '{blockPath}' (slug '{normalizedSlug}'). Expected {block.Version}, got {item.Version}.");
+            if (item.Version is not { } version)
+            {
+                missingVersions.Add($"Block '{blockPath}' changed but carries no version.");
+                continue;
+            }
 
-            block.UpdateValue(item.Value, updatedBy, utcNow);
-            updated++;
+            if (version != block.Version)
+            {
+                conflicts.Add(new VersionConflict(blockPath, block.Version, version));
+                continue;
+            }
+
+            pending.Add((block, item.Value));
         }
 
-        if (updated > 0)
+        if (missingVersions.Count > 0)
+            throw new ValidationException(missingVersions);
+
+        if (conflicts.Count > 0)
+            throw new ConcurrencyConflictException(
+                $"Version conflict on slug '{normalizedSlug}': {string.Join("; ", conflicts.Select(c => $"'{c.Path}' expected {c.Expected}, got {c.Provided}"))}.",
+                conflicts);
+
+        var utcNow = DateTime.UtcNow;
+
+        foreach (var (block, value) in pending)
+            block.UpdateValue(value, updatedBy, utcNow);
+
+        if (pending.Count > 0)
             await _repository.SaveChangesAsync(cancellationToken);
 
         await _draftService.DeleteDraftAsync(clientId, updatedBy, normalizedSlug, cancellationToken);
 
-        return new UpdatePageResponse(updated, unchanged);
+        return new UpdatePageResponse(pending.Count, unchanged);
     }
 
     public async Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default)

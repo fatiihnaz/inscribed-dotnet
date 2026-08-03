@@ -30,15 +30,22 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
             _logger.LogError(exception, "Unhandled exception for {Path}", httpContext.Request.Path);
         
 
+        var problem = new ProblemDetails
+        {
+            Status = statusCode,
+            Title = title,
+            Detail = detail,
+            Instance = httpContext.Request.Path
+        };
+
+        if (exception is ConcurrencyConflictException { Conflicts.Count: > 0 } conflict)
+            problem.Extensions["conflicts"] = conflict.Conflicts;
+
+        if (exception is ValidationException { Errors.Count: > 0 } validation)
+            problem.Extensions["errors"] = validation.Errors;
+
         httpContext.Response.StatusCode = statusCode;
-        await httpContext.Response.WriteAsJsonAsync(
-            new ProblemDetails
-            {
-                Status = statusCode,
-                Title = title,
-                Detail = detail,
-                Instance = httpContext.Request.Path
-            }, cancellationToken);
+        await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
 
         return true;
     }

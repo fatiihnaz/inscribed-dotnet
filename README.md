@@ -45,7 +45,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 - **Per-user drafts in Redis.** Editors autosave drafts that overlay published values in their own reads only; publishing clears the draft. Draft data never touches PostgreSQL.
 - **Schema-validated collections.** Each collection is a mounted JSON definition file: field schema, slug strategy (user-defined or auto-generated from a field), optional anonymous reads. Definitions are strictly validated: the app refuses to boot on a broken file rather than skip it. Payloads are validated and unknown fields rejected.
 - **Declarative external data.** A collection file can enrich items from external APIs at read time (URL template + response field map), with response caching and timeouts by default; an upstream outage never fails a read. Credentials are named config entries (API key or OAuth2 client credentials with self-managed tokens); secrets never appear in definition files or logs.
-- **Optimistic concurrency everywhere.** Every entity carries a `Version`; conflicting writes fail with **409** instead of silently overwriting another editor.
+- **Optimistic concurrency everywhere.** Every entity carries a `Version`, checked both against the version the caller sent and, at the database, against the row as it was read; either kind of clash fails with **409** instead of silently overwriting another editor.
 - **CDN-friendly anonymous reads.** Opt-in public endpoints answer with `Cache-Control: public, max-age=60, stale-while-revalidate=300`; editor reads on the same collection routes are marked `private, no-store`.
 
 ## Requirements
@@ -155,7 +155,7 @@ A page is a `slug` plus a flat list of **content blocks**. Each block has a `blo
 | `RichText` | HTML/rich content |
 | `Image`, `Link`, `List`, `Date` | typed values for panel widgets |
 
-Editors publish with `PUT /cms/content`, sending each block's expected `version`; a mismatch fails with **409** so two editors cannot silently overwrite each other. Unchanged values are skipped without a version check.
+Editors publish with `PUT /cms/content`, sending each block's expected `version`; a mismatch fails with **409** listing every clashing block, so two editors cannot silently overwrite each other. Unchanged values are skipped without a version check, which is also the one case where `version` may be omitted: a block whose value actually changed must carry one, or the request fails with **400**. Nothing is written unless every block passes, so a rejected publish is a no-op rather than a partial one.
 
 ### Sync: the manifest reconcile
 
@@ -202,7 +202,7 @@ A definition declares a **schema** of typed fields, a **slug strategy** (user-de
 
 Definitions are validated strictly at startup and a broken file **aborts boot** with an error naming the file and every violation; a misconfigured collection is never silently skipped. The full definition reference, enrichment semantics, credential types, token lifecycle, and trust model live in [docs/collections.md](docs/collections.md).
 
-Writes are validated against the schema: wrong types and unknown fields are rejected with **400** (drafts skip only the `Required` check). Listing supports `offset`/`limit` paging (limit clamped to 100) and equality filters on `Filterable` fields via plain query parameters, e.g. `GET /cms/collections/News/?featured=true&tags=release`. `GET /cms/collections/me` tells a panel which collections the current user may create in, with their schemas, so the editor UI is fully schema-driven.
+Writes are validated against the schema: wrong types and unknown fields are rejected with **400** (drafts skip only the `Required` check). Updating an existing item requires `version`, like a page publish does; omitting it fails with **400** rather than overwriting whoever wrote last. Creation carries no version, since there is nothing to conflict with. Listing supports `offset`/`limit` paging (limit clamped to 100) and equality filters on `Filterable` fields via plain query parameters, e.g. `GET /cms/collections/News/?featured=true&tags=release`. `GET /cms/collections/me` tells a panel which collections the current user may create in, with their schemas, so the editor UI is fully schema-driven.
 
 ### Identity, tokens and capabilities
 
@@ -517,6 +517,23 @@ Failures return RFC 7807 `application/problem+json` bodies mapped by a global ha
 | `403` | authenticated but not permitted (policy or collection `CanEdit`/`CanCreate` refusal) |
 | `404` | unknown slug/item/client, and public reads with the anonymous flag off (deliberate non-disclosure) |
 | `409` | optimistic concurrency conflict; re-read and retry with the fresh `version` |
+
+Two responses carry a machine-readable extension beside `detail`. A `400` from a validation failure adds `errors`, the flat list of messages. A `409` raised by a version mismatch adds `conflicts`, one entry per clashing target:
+
+```json
+{
+  "title": "Conflict",
+  "status": 409,
+  "detail": "Version conflict on slug '/': 'hero.title' expected 4, got 1; 'cover' expected 2, got 1.",
+  "instance": "/cms/content",
+  "conflicts": [
+    { "path": "hero.title", "expected": 4, "provided": 1 },
+    { "path": "cover", "expected": 2, "provided": 1 }
+  ]
+}
+```
+
+A page publish reports **every** clashing block in one response, so a panel can build a per-block merge prompt without probing one block per attempt. `conflicts` is absent (not empty) when the conflict was detected by the database rather than by a version comparison: a write that lands between another writer's read and save has no per-block expectation to report, only the fact of the race.
 
 ## Further reading
 
