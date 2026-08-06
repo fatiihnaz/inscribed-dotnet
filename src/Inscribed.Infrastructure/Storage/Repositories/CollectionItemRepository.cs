@@ -29,12 +29,16 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
 
     public async Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
         string key,
+        string? locale,
         JsonObject? filterContainment,
         int offset,
         int limit,
         CancellationToken cancellationToken = default)
     {
         var query = _context.CollectionItems.AsQueryable().Where(x => x.CollectionKey == key);
+
+        if (locale is not null)
+            query = query.Where(x => x.Locale == locale);
 
         if (filterContainment is { Count: > 0 })
         {
@@ -61,6 +65,14 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             query = query.IgnoreQueryFilters();
 
         return await query.FirstOrDefaultAsync(x => x.CollectionKey == key && x.Slug == slug, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupAsync(string key, Guid translationGroupId, CancellationToken cancellationToken = default)
+    {
+        return await _context.CollectionItems
+            .Where(x => x.CollectionKey == key && x.TranslationGroupId == translationGroupId)
+            .OrderBy(x => x.Slug)
+            .ToListAsync(cancellationToken);
     }
 
     public Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default)

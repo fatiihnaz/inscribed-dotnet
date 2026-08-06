@@ -20,12 +20,12 @@ public sealed class ContentService : IContentService
         _draftService = draftService;
     }
 
-    public async Task<ContentResponse> GetBySlugAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default)
+    public async Task<ContentResponse> GetBySlugAsync(string clientId, string? locale, string userId, string slug, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(slug);
 
-        var blocksTask = _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
-        var draftTask = _draftService.GetDraftAsync(clientId, userId, normalizedSlug, cancellationToken);
+        var blocksTask = _repository.GetBySlugAsync(clientId, locale, normalizedSlug, cancellationToken: cancellationToken);
+        var draftTask = _draftService.GetDraftAsync(clientId, locale, userId, normalizedSlug, cancellationToken);
 
         await Task.WhenAll(blocksTask, draftTask);
 
@@ -56,14 +56,14 @@ public sealed class ContentService : IContentService
                 );
             }).ToList();
 
-        return new ContentResponse(normalizedSlug, blockResponses);
+        return new ContentResponse(normalizedSlug, locale, blockResponses);
     }
 
-    public async Task<ContentResponse> GetDataBySlugAsync(string clientId, string slug, CancellationToken cancellationToken = default)
+    public async Task<ContentResponse> GetDataBySlugAsync(string clientId, string? locale, string slug, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(slug);
 
-        var blocks = await _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
+        var blocks = await _repository.GetBySlugAsync(clientId, locale, normalizedSlug, cancellationToken: cancellationToken);
 
         var blockResponses = blocks
             .Select(block => new BlockResponse(
@@ -75,14 +75,14 @@ public sealed class ContentService : IContentService
                 Data: null))
             .ToList();
 
-        return new ContentResponse(normalizedSlug, blockResponses);
+        return new ContentResponse(normalizedSlug, locale, blockResponses);
     }
 
-    public async Task<UpdatePageResponse> UpdatePageAsync(string clientId, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default)
+    public async Task<UpdatePageResponse> UpdatePageAsync(string clientId, string? locale, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(request.Slug);
 
-        var blocks = await _repository.GetBySlugAsync(clientId, normalizedSlug, cancellationToken: cancellationToken);
+        var blocks = await _repository.GetBySlugAsync(clientId, locale, normalizedSlug, cancellationToken: cancellationToken);
         var blocksByPath = blocks.ToDictionary(b => b.BlockPath);
 
         var unchanged = 0;
@@ -133,16 +133,19 @@ public sealed class ContentService : IContentService
         if (pending.Count > 0)
             await _repository.SaveChangesAsync(cancellationToken);
 
-        await _draftService.DeleteDraftAsync(clientId, updatedBy, normalizedSlug, cancellationToken);
+        await _draftService.DeleteDraftAsync(clientId, locale, updatedBy, normalizedSlug, cancellationToken);
 
         return new UpdatePageResponse(pending.Count, unchanged);
     }
 
-    public async Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default)
+    public async Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default)
     {
         var utcNow = DateTime.UtcNow;
 
-        var desiredByKey = new Dictionary<(string Slug, string BlockPath), ManifestBlockItem>();
+        var targetLocales = locales.Count == 0 ? [null] : locales.Select(l => (string?)l).ToArray();
+
+        var desiredByKey = new Dictionary<(string? Locale, string Slug, string BlockPath), ManifestBlockItem>();
+        var manifestPaths = new HashSet<(string Slug, string BlockPath)>();
         var requestSlugs = new HashSet<string>();
 
         foreach (var manifest in manifests)
@@ -153,12 +156,39 @@ public sealed class ContentService : IContentService
             foreach (var item in manifest.Blocks)
             {
                 var blockPath = SlugNormalizer.NormalizeBlockPath(item.BlockPath);
-                desiredByKey[(slug, blockPath)] = item;
+                manifestPaths.Add((slug, blockPath));
+
+                foreach (var locale in targetLocales)
+                    desiredByKey[(locale, slug, blockPath)] = item;
             }
         }
 
         var existing = await _repository.GetByClientAsync(clientId, includeArchived: true, cancellationToken: cancellationToken);
-        var existingByKey = existing.ToDictionary(b => (b.Slug, b.BlockPath));
+
+        var existingByKey = new Dictionary<(string? Locale, string Slug, string BlockPath), ContentBlock>();
+        foreach (var block in existing)
+            existingByKey[(block.Locale, block.Slug, block.BlockPath)] = block;
+
+        if (locales.Count > 0)
+        {
+            var defaultLocale = locales[0];
+
+            foreach (var block in existing)
+            {
+                if (block.Locale is not null || !manifestPaths.Contains((block.Slug, block.BlockPath)))
+                    continue;
+
+                (string? Locale, string Slug, string BlockPath) target = (defaultLocale, block.Slug, block.BlockPath);
+                if (existingByKey.ContainsKey(target))
+                    continue;
+
+                if (!block.AdoptLocale(defaultLocale, syncedBy, utcNow))
+                    continue;
+
+                existingByKey.Remove((null, block.Slug, block.BlockPath));
+                existingByKey[target] = block;
+            }
+        }
 
         var counts = requestSlugs.ToDictionary(slug => slug, _ => new SlugCounts());
         var prunedSlugs = new HashSet<string>();
@@ -167,7 +197,7 @@ public sealed class ContentService : IContentService
 
         foreach (var block in existing)
         {
-            var key = (block.Slug, block.BlockPath);
+            var key = (block.Locale, block.Slug, block.BlockPath);
 
             if (desiredByKey.TryGetValue(key, out var item))
             {
@@ -175,12 +205,12 @@ public sealed class ContentService : IContentService
                 {
                     block.Restore(syncedBy, utcNow);
                     block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
-                    counts[block.Slug].Restored++;
+                    counts[block.Slug].Restored.Add(block.BlockPath);
                 }
                 else
                 {
                     block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
-                    counts[block.Slug].Unchanged++;
+                    counts[block.Slug].Unchanged.Add(block.BlockPath);
                 }
             }
             else if (!block.IsArchived)
@@ -188,19 +218,20 @@ public sealed class ContentService : IContentService
                 block.Archive(syncedBy, utcNow);
 
                 if (requestSlugs.Contains(block.Slug))
-                    counts[block.Slug].Deleted++;
+                    counts[block.Slug].Deleted.Add(block.BlockPath);
                 else
                     prunedSlugs.Add(block.Slug);
             }
         }
 
-        foreach (var ((slug, blockPath), item) in desiredByKey)
+        foreach (var ((locale, slug, blockPath), item) in desiredByKey)
         {
-            if (existingByKey.ContainsKey((slug, blockPath)))
+            if (existingByKey.ContainsKey((locale, slug, blockPath)))
                 continue;
 
             toCreate.Add(ContentBlock.Create(
                 clientId,
+                locale,
                 slug,
                 blockPath,
                 item.BlockType,
@@ -209,7 +240,7 @@ public sealed class ContentService : IContentService
                 syncedBy,
                 utcNow
             ));
-            counts[slug].Created++;
+            counts[slug].Created.Add(blockPath);
         }
 
         if (toCreate.Count > 0)
@@ -218,7 +249,12 @@ public sealed class ContentService : IContentService
         await _repository.SaveChangesAsync(cancellationToken);
 
         var results = counts
-            .Select(kvp => new SyncSlugResult(kvp.Key, kvp.Value.Created, kvp.Value.Deleted, kvp.Value.Unchanged, kvp.Value.Restored))
+            .Select(kvp => new SyncSlugResult(
+                kvp.Key,
+                kvp.Value.Created.Count,
+                kvp.Value.Deleted.Count,
+                kvp.Value.Unchanged.Count,
+                kvp.Value.Restored.Count))
             .ToList();
 
         return new SyncResultResponse(results, prunedSlugs.ToList());
@@ -226,17 +262,17 @@ public sealed class ContentService : IContentService
 
     private sealed class SlugCounts
     {
-        public int Created;
-        public int Deleted;
-        public int Unchanged;
-        public int Restored;
+        public readonly HashSet<string> Created = new(StringComparer.Ordinal);
+        public readonly HashSet<string> Deleted = new(StringComparer.Ordinal);
+        public readonly HashSet<string> Unchanged = new(StringComparer.Ordinal);
+        public readonly HashSet<string> Restored = new(StringComparer.Ordinal);
     }
 
-    public async Task SaveDraftAsync(string clientId, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default)
+    public async Task SaveDraftAsync(string clientId, string? locale, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeSlug(request.Slug);
 
-        var existing = await _draftService.GetDraftAsync(clientId, userId, normalizedSlug, cancellationToken);
+        var existing = await _draftService.GetDraftAsync(clientId, locale, userId, normalizedSlug, cancellationToken);
 
         var overlay = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
 
@@ -253,9 +289,9 @@ public sealed class ContentService : IContentService
             .Select(entry => new DraftBlock(entry.Key, entry.Value))
             .ToList();
 
-        await _draftService.SaveDraftAsync(clientId, userId, normalizedSlug, draftBlocks, cancellationToken);
+        await _draftService.SaveDraftAsync(clientId, locale, userId, normalizedSlug, draftBlocks, cancellationToken);
     }
 
-    public Task DiscardDraftAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default)
-        => _draftService.DeleteDraftAsync(clientId, userId, SlugNormalizer.NormalizeSlug(slug), cancellationToken);
+    public Task DiscardDraftAsync(string clientId, string? locale, string userId, string slug, CancellationToken cancellationToken = default)
+        => _draftService.DeleteDraftAsync(clientId, locale, userId, SlugNormalizer.NormalizeSlug(slug), cancellationToken);
 }

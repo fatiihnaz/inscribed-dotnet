@@ -20,6 +20,8 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
 
         builder.Property(x => x.AllowedRedirectOrigins).IsRequired().HasColumnType("text[]");
 
+        builder.Property(x => x.Locales).IsRequired().HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
+
         builder.Property(x => x.AllowAnonymousContentRead).IsRequired().HasDefaultValue(false);
 
         builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);

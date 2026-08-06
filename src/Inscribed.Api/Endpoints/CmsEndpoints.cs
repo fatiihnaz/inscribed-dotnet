@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Inscribed.Api.Authentication;
 using Inscribed.Application.Contracts.Requests;
 using Inscribed.Application.Services;
+using Inscribed.Application.Services.Helpers;
 using Inscribed.Auth.Storage.Repositories;
 using Microsoft.AspNetCore.Authorization;
 
@@ -15,7 +16,7 @@ public static class CmsEndpoints
 
     public static IEndpointRouteBuilder MapCmsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/cms/public/{clientKey}/content", async (string clientKey, string? slug, HttpContext context, IClientRepository clients, IContentService service, CancellationToken ct) =>
+        app.MapGet("/cms/public/{clientKey}/content", async (string clientKey, string? slug, string? locale, HttpContext context, IClientRepository clients, IContentService service, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(slug))
                 return Results.BadRequest("Slug is required.");
@@ -26,13 +27,14 @@ public static class CmsEndpoints
 
             context.Response.Headers.CacheControl = $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}";
 
-            var response = await service.GetDataBySlugAsync(clientKey, slug, ct);
+            var resolved = LocaleResolver.Resolve(client.Locales, locale, forWrite: false);
+            var response = await service.GetDataBySlugAsync(clientKey, resolved, slug, ct);
             return Results.Ok(response);
         });
 
         var group = app.MapGroup("/cms");
 
-        group.MapGet("/content", async (string? slug, HttpContext context, IClientRepository clients, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
+        group.MapGet("/content", async (string? slug, string? locale, HttpContext context, IClientRepository clients, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -47,21 +49,23 @@ public static class CmsEndpoints
 
             context.Response.Headers.Vary = "Authorization";
 
+            var client = await clients.GetByKeyAsync(clientId, ct);
+            var resolved = LocaleResolver.Resolve(client?.Locales ?? [], locale, forWrite: false);
+
             if ((await authorization.AuthorizeAsync(context.User, "ContentWrite")).Succeeded)
             {
                 context.Response.Headers.CacheControl = "private, no-store";
-                return Results.Ok(await service.GetBySlugAsync(clientId, userId, slug, ct));
+                return Results.Ok(await service.GetBySlugAsync(clientId, resolved, userId, slug, ct));
             }
 
-            var client = await clients.GetByKeyAsync(clientId, ct);
             context.Response.Headers.CacheControl = client?.AllowAnonymousContentRead == true
                 ? $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}"
                 : $"private, max-age={PublicReadMaxAgeSeconds}";
 
-            return Results.Ok(await service.GetDataBySlugAsync(clientId, slug, ct));
+            return Results.Ok(await service.GetDataBySlugAsync(clientId, resolved, slug, ct));
         }).RequireAuthorization("ContentRead");
 
-        group.MapPut("/content", async (HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>
+        group.MapPut("/content", async (string? locale, HttpContext context, UpdatePageRequest request, IClientRepository clients, IContentService service, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -71,11 +75,13 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(updatedBy))
                 return Results.Unauthorized();
 
-            var response = await service.UpdatePageAsync(clientId, request, updatedBy, ct);
+            var resolved = await ResolveWriteLocaleAsync(clients, clientId, locale, ct);
+
+            var response = await service.UpdatePageAsync(clientId, resolved, request, updatedBy, ct);
             return Results.Ok(response);
         }).RequireAuthorization("ContentWrite");
 
-        group.MapPut("/draft", async (HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>
+        group.MapPut("/draft", async (string? locale, HttpContext context, UpdatePageRequest request, IClientRepository clients, IContentService service, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -88,11 +94,13 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(request.Slug))
                 return Results.BadRequest("Slug is required.");
 
-            await service.SaveDraftAsync(clientId, userId, request, ct);
+            var resolved = await ResolveWriteLocaleAsync(clients, clientId, locale, ct);
+
+            await service.SaveDraftAsync(clientId, resolved, userId, request, ct);
             return Results.NoContent();
         }).RequireAuthorization("ContentWrite");
 
-        group.MapDelete("/draft", async (HttpContext context, string? slug, IContentService service, CancellationToken ct) =>
+        group.MapDelete("/draft", async (string? slug, string? locale, HttpContext context, IClientRepository clients, IContentService service, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -105,11 +113,13 @@ public static class CmsEndpoints
             if (string.IsNullOrWhiteSpace(slug))
                 return Results.BadRequest("Slug is required.");
 
-            await service.DiscardDraftAsync(clientId, userId, slug, ct);
+            var resolved = await ResolveWriteLocaleAsync(clients, clientId, locale, ct);
+
+            await service.DiscardDraftAsync(clientId, resolved, userId, slug, ct);
             return Results.NoContent();
         }).RequireAuthorization("ContentWrite");
 
-        group.MapPost("/sync", async (HttpContext context, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IContentService service, CancellationToken ct) =>
+        group.MapPost("/sync", async (HttpContext context, string? locales, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IClientRepository clients, IContentService service, CancellationToken ct) =>
         {
             var clientId = context.User.GetClientId();
             if (string.IsNullOrWhiteSpace(clientId))
@@ -118,10 +128,25 @@ public static class CmsEndpoints
             if (manifests is null)
                 return Results.BadRequest("Request body must be a manifest array.");
 
-            var response = await service.SyncAsync(clientId, manifests, SyncedByDeployPipeline, ct);
+            var client = await clients.GetByKeyAsync(clientId, ct);
+
+            if (locales is not null && client is not null)
+            {
+                var declared = locales.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (client.SetLocales(declared, DateTime.UtcNow))
+                    await clients.SaveChangesAsync(ct);
+            }
+
+            var response = await service.SyncAsync(clientId, client?.Locales ?? [], manifests, SyncedByDeployPipeline, ct);
             return Results.Ok(response);
         }).RequireAuthorization("SchemaSync");
 
         return app;
+    }
+
+    private static async Task<string?> ResolveWriteLocaleAsync(IClientRepository clients, string clientId, string? locale, CancellationToken cancellationToken)
+    {
+        var client = await clients.GetByKeyAsync(clientId, cancellationToken);
+        return LocaleResolver.Resolve(client?.Locales ?? [], locale, forWrite: true);
     }
 }

@@ -6,6 +6,7 @@ namespace Inscribed.Domain.Entities;
 public sealed class ContentBlock : Entity
 {
     public string ClientId { get; private set; } = default!;
+    public string? Locale { get; private set; }
     public string Slug { get; private set; } = default!;
     public string BlockPath { get; private set; } = default!;
     public BlockType BlockType { get; private set; }
@@ -19,6 +20,7 @@ public sealed class ContentBlock : Entity
 
     public static ContentBlock Create(
         string clientId,
+        string? locale,
         string slug,
         string blockPath,
         BlockType blockType,
@@ -37,6 +39,7 @@ public sealed class ContentBlock : Entity
         {
             Id = Guid.NewGuid(),
             ClientId = clientId,
+            Locale = locale,
             Slug = slug,
             BlockPath = blockPath,
             BlockType = blockType,
@@ -84,6 +87,22 @@ public sealed class ContentBlock : Entity
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
         Version += 1;
+        return true;
+    }
+
+    public bool AdoptLocale(string locale, string updatedBy, DateTime utcNow)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(locale);
+        ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
+
+        if (Locale is not null)
+        {
+            return false;
+        }
+
+        Locale = locale;
+        UpdatedBy = updatedBy;
+        UpdatedAt = utcNow;
         return true;
     }
 

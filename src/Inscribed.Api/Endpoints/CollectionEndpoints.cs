@@ -45,43 +45,44 @@ public static class CollectionEndpoints
             var query = context.Request.Query;
             var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
             var limit = int.TryParse(query["limit"], out var l) ? Math.Clamp(l, 1, 100) : 50;
+            var locale = query["locale"].ToString();
 
-            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "offset", "limit" };
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "offset", "limit", "locale" };
             var filters = query
                 .Where(kv => !reserved.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
 
-            var result = await service.ListAsync(key, context.User, userId, filters, offset, limit, ct);
+            var result = await service.ListAsync(key, locale, context.User, userId, filters, offset, limit, ct);
             return Results.Ok(result);
         }).AllowAnonymous();
 
-        group.MapPost("/", async (string key, CreateCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPost("/", async (string key, string? locale, Guid? translationGroup, CreateCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var updatedBy = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(updatedBy))
                 return Results.Unauthorized();
 
-            var response = await service.CreateAutoSlugAsync(key, request, context.User, updatedBy, ct);
+            var response = await service.CreateAutoSlugAsync(key, locale, translationGroup, request, context.User, updatedBy, ct);
             return Results.Created($"/cms/collections/{response.CollectionKey}/{response.Slug}", response);
         });
 
-        group.MapPost("/drafts", async (string key, SaveNewDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPost("/drafts", async (string key, string? locale, Guid? translationGroup, SaveNewDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var userId = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(userId))
                 return Results.Unauthorized();
 
-            await service.SaveNewDraftAsync(key, userId, context.User, request, ct);
+            await service.SaveNewDraftAsync(key, locale, translationGroup, userId, context.User, request, ct);
             return Results.NoContent();
         });
 
-        group.MapDelete("/drafts", async (string key, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapDelete("/drafts", async (string key, string? locale, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var userId = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(userId))
                 return Results.Unauthorized();
 
-            await service.DiscardNewDraftAsync(key, userId, ct);
+            await service.DiscardNewDraftAsync(key, locale, userId, ct);
             return Results.NoContent();
         });
 
@@ -99,13 +100,13 @@ public static class CollectionEndpoints
             return item is null ? Results.NotFound() : Results.Ok(item);
         }).AllowAnonymous();
 
-        group.MapPut("/{slug}", async (string key, string slug, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPut("/{slug}", async (string key, string slug, string? locale, Guid? translationGroup, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var updatedBy = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(updatedBy))
                 return Results.Unauthorized();
 
-            var response = await service.UpsertAsync(key, slug, request, context.User, updatedBy, ct);
+            var response = await service.UpsertAsync(key, slug, locale, translationGroup, request, context.User, updatedBy, ct);
             return Results.Ok(response);
         });
 

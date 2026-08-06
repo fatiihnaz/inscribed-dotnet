@@ -4,7 +4,7 @@ namespace Inscribed.Application.Contracts.Repositories;
 
 public interface IContentBlockRepository
 {
-    Task<IReadOnlyList<ContentBlock>> GetBySlugAsync(string clientId, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ContentBlock>> GetBySlugAsync(string clientId, string? locale, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ContentBlock>> GetByClientAsync(string clientId, bool includeArchived = false, CancellationToken cancellationToken = default);
 

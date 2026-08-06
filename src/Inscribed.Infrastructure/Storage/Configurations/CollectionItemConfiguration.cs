@@ -16,6 +16,10 @@ internal sealed class CollectionItemConfiguration : IEntityTypeConfiguration<Col
 
         builder.Property(x => x.CollectionKey).IsRequired().HasMaxLength(32).HasColumnOrder(1);
 
+        builder.Property(x => x.Locale).HasMaxLength(16);
+
+        builder.Property(x => x.TranslationGroupId).IsRequired();
+
         builder.Property(x => x.Slug).IsRequired().HasMaxLength(256);
 
         builder.Property(x => x.Data).IsRequired().HasColumnType("jsonb");
@@ -34,6 +38,8 @@ internal sealed class CollectionItemConfiguration : IEntityTypeConfiguration<Col
 
         builder.HasIndex(x => new { x.CollectionKey, x.Slug }).IsUnique();
         builder.HasIndex(x => new { x.CollectionKey, x.IsArchived });
+        builder.HasIndex(x => new { x.CollectionKey, x.Locale });
+        builder.HasIndex(x => new { x.TranslationGroupId, x.Locale }).IsUnique().AreNullsDistinct(false);
 
         builder.HasQueryFilter(x => !x.IsArchived);
     }

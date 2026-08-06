@@ -14,6 +14,8 @@ public interface ICollectionPolicy
 
     bool AllowAnonymousRead { get; }
 
+    IReadOnlyList<string> Locales { get; }
+
     bool CanEdit(ClaimsPrincipal user, string slug);
 
     bool CanCreate(ClaimsPrincipal user);

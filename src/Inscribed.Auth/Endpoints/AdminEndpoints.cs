@@ -114,6 +114,7 @@ public static class AdminEndpoints
         client.Key,
         client.Name,
         client.AllowedRedirectOrigins,
+        client.Locales,
         client.AllowAnonymousContentRead,
         client.IsActive,
         client.CreatedAt,

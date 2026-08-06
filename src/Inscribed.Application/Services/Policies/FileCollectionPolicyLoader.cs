@@ -12,6 +12,7 @@ public static class FileCollectionPolicyLoader
     private const int MaxCacheSeconds = 86_400;
 
     private static readonly Regex KeyPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
+    private static readonly Regex LocalePattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
     private static readonly Regex FieldNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex PlaceholderPattern = new(@"\{([^{}]*)\}", RegexOptions.Compiled);
     private static readonly Regex ResponsePathPattern = new(@"^[A-Za-z0-9_]+(\[\d+\])?(\.[A-Za-z0-9_]+(\[\d+\])?)*$", RegexOptions.Compiled);
@@ -97,6 +98,7 @@ public static class FileCollectionPolicyLoader
             errors.Add($"key '{document.Key}' must be lowercase alphanumerics separated by single hyphens (e.g. 'team-members')");
 
         var fields = BuildFields(document.Fields, "fields", errors);
+        var locales = BuildLocales(document.Locales, errors);
 
         var slugSource = SlugSource.UserDefined;
         string? slugSourceField = null;
@@ -144,8 +146,37 @@ public static class FileCollectionPolicyLoader
             slugSource,
             slugSourceField,
             document.AllowAnonymousRead,
+            locales,
             fileName,
             enrichments);
+    }
+
+    private static List<string> BuildLocales(List<string>? documents, List<string> errors)
+    {
+        if (documents is null)
+            return [];
+
+        if (documents.Count == 0)
+        {
+            errors.Add("'locales' must contain at least one locale when present; omit the key entirely for a single-language collection");
+            return [];
+        }
+
+        var locales = new List<string>(documents.Count);
+
+        foreach (var locale in documents)
+        {
+            if (string.IsNullOrWhiteSpace(locale))
+                errors.Add("'locales' entries must not be empty");
+            else if (!LocalePattern.IsMatch(locale))
+                errors.Add($"locale '{locale}' must be lowercase alphanumerics separated by single hyphens (e.g. 'tr', 'pt-br')");
+            else if (locales.Contains(locale, StringComparer.Ordinal))
+                errors.Add($"locale '{locale}' is listed more than once");
+            else
+                locales.Add(locale);
+        }
+
+        return locales;
     }
 
     private static List<EnrichmentDefinition> BuildEnrichments(

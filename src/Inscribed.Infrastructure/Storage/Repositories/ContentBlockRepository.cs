@@ -13,7 +13,7 @@ internal sealed class ContentBlockRepository : IContentBlockRepository
         _context = context;
     }
 
-    public async Task<IReadOnlyList<ContentBlock>> GetBySlugAsync(string clientId, string slug, bool includeArchived = false, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ContentBlock>> GetBySlugAsync(string clientId, string? locale, string slug, bool includeArchived = false, CancellationToken cancellationToken = default)
     {
         var query = _context.ContentBlocks.AsQueryable();
 
@@ -22,8 +22,13 @@ internal sealed class ContentBlockRepository : IContentBlockRepository
             query = query.IgnoreQueryFilters();
         }
 
+        query = query.Where(x => x.ClientId == clientId && x.Slug == slug);
+
+        query = locale is null
+            ? query.Where(x => x.Locale == null)
+            : query.Where(x => x.Locale == locale);
+
         return await query
-            .Where(x => x.ClientId == clientId && x.Slug == slug)
             .OrderBy(x => x.SortOrder)
             .ToListAsync(cancellationToken);
     }

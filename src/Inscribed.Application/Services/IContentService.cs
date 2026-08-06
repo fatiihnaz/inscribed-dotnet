@@ -5,15 +5,15 @@ namespace Inscribed.Application.Services;
 
 public interface IContentService
 {
-    Task<ContentResponse> GetBySlugAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default);
+    Task<ContentResponse> GetBySlugAsync(string clientId, string? locale, string userId, string slug, CancellationToken cancellationToken = default);
 
-    Task<ContentResponse> GetDataBySlugAsync(string clientId, string slug, CancellationToken cancellationToken = default);
+    Task<ContentResponse> GetDataBySlugAsync(string clientId, string? locale, string slug, CancellationToken cancellationToken = default);
 
-    Task<UpdatePageResponse> UpdatePageAsync(string clientId, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default);
+    Task<UpdatePageResponse> UpdatePageAsync(string clientId, string? locale, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default);
 
-    Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default);
+    Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default);
 
-    Task SaveDraftAsync(string clientId, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default);
+    Task SaveDraftAsync(string clientId, string? locale, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default);
 
-    Task DiscardDraftAsync(string clientId, string userId, string slug, CancellationToken cancellationToken = default);
+    Task DiscardDraftAsync(string clientId, string? locale, string userId, string slug, CancellationToken cancellationToken = default);
 }

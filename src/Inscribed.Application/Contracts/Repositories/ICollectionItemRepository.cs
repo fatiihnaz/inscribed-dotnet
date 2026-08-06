@@ -9,12 +9,15 @@ public interface ICollectionItemRepository
 
     Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
         string key,
+        string? locale,
         JsonObject? filterContainment,
         int offset,
         int limit,
         CancellationToken cancellationToken = default);
 
     Task<CollectionItem?> GetBySlugAsync(string key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupAsync(string key, Guid translationGroupId, CancellationToken cancellationToken = default);
 
     Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default);
 

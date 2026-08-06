@@ -220,6 +220,7 @@ internal static class AdminCommands
             ("NAME", client.Name),
             ("STATE", client.IsActive ? Output.Green("active") : Output.Red("inactive")),
             ("ANON-READ", client.AllowAnonymousContentRead ? "yes" : "no"),
+            ("LOCALES", client.Locales.Length == 0 ? Output.Dim("(not localized)") : string.Join(", ", client.Locales)),
             ("ORIGINS", client.AllowedRedirectOrigins.Length == 0 ? Output.Dim("(none)") : string.Join(", ", client.AllowedRedirectOrigins)),
             ("CREATED", client.CreatedAt.ToString("yyyy-MM-dd HH:mm 'UTC'")),
             ("KEYS", $"{detail.ServiceKeys} ({detail.ActiveServiceKeys} active)"),
@@ -230,7 +231,7 @@ internal static class AdminCommands
 
     private static async Task ListClientsAsync(IAdminService admin)
     {
-        var table = new Table("KEY", "NAME", "STATE", "ANON-READ");
+        var table = new Table("KEY", "NAME", "STATE", "ANON-READ", "LOCALES");
         var clients = await admin.ListClientsAsync();
 
         foreach (var client in clients)
@@ -239,7 +240,8 @@ internal static class AdminCommands
                 client.Key,
                 client.Name,
                 client.IsActive ? Output.Green("active") : Output.Red("inactive"),
-                client.AllowAnonymousContentRead ? "yes" : "no");
+                client.AllowAnonymousContentRead ? "yes" : "no",
+                client.Locales.Length == 0 ? Output.Dim("-") : string.Join(",", client.Locales));
         }
 
         table.Write("No clients.", Count(clients.Count, "client"));

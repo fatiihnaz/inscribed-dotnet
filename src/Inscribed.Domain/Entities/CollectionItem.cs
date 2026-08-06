@@ -5,6 +5,8 @@ namespace Inscribed.Domain.Entities;
 public sealed class CollectionItem : Entity
 {
     public string CollectionKey { get; private set; } = default!;
+    public string? Locale { get; private set; }
+    public Guid TranslationGroupId { get; private set; }
     public string Slug { get; private set; } = default!;
     public JsonNode Data { get; private set; } = default!;
     public string UpdatedBy { get; private set; } = default!;
@@ -15,10 +17,12 @@ public sealed class CollectionItem : Entity
 
     public static CollectionItem Create(
         string collectionKey,
+        string? locale,
         string slug,
         JsonNode data,
         string updatedBy,
-        DateTime utcNow)
+        DateTime utcNow,
+        Guid? translationGroupId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(slug);
@@ -29,6 +33,8 @@ public sealed class CollectionItem : Entity
         {
             Id = Guid.NewGuid(),
             CollectionKey = collectionKey,
+            Locale = locale,
+            TranslationGroupId = translationGroupId ?? Guid.NewGuid(),
             Slug = slug,
             Data = data,
             UpdatedBy = updatedBy,

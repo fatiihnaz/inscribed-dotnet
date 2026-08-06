@@ -168,6 +168,43 @@ Editors publish with `PUT /cms/content`, sending each block's expected `version`
 
 Slugs entirely absent from the manifest are archived and reported back as `prunedSlugs`. Because the reconcile is whole-state, sync is **idempotent**: running the same manifest twice is a no-op.
 
+### Locales
+
+Locale is **optional everywhere**. A client that sends no `locale` behaves exactly as it did before the feature existed, and the migration that introduced it touches no rows.
+
+The manifest stays locale-free: a localized app still declares one `/about` page, not one per language. Instead the frontend declares its languages on the sync call itself, and the backend fans out:
+
+```sh
+curl -X POST "http://localhost:5000/cms/sync?locales=tr,en" \
+  -H "Authorization: Bearer ink_live_..." \
+  -d '[{ "slug": "/about", "blocks": [ ... ] }]'
+```
+
+Sync is the single authority for the list; the admin console and CLI show it read-only. That is deliberate: two writers would let the manifest and the database drift apart silently. `?locales=` omitted leaves the current list alone, and `?locales=` empty clears it.
+
+Each sync then reconciles **one row per block per locale**:
+
+- rows that predate localization are **adopted** into the first locale, keeping their values and versions, so existing content lands in the default language without a backfill or a guess about what language it was in;
+- the remaining locales materialize at `defaultValue`;
+- adding a language later is just re-running sync with a longer list.
+
+There is **no fallback chain**. An untranslated block renders its `defaultValue`, because sync already put a real row there. A missing translation is meant to be visible rather than quietly wearing another language's text, and it keeps reads a single indexed lookup with no coalesce.
+
+Reads and writes disagree about an unknown `?locale=` on purpose:
+
+| | Unknown `?locale=` |
+|---|---|
+| Reads (`GET`) | fall back to the default locale, and report what was actually served in the response's `locale` field |
+| Writes (`PUT`, `POST`, `DELETE`) | **400** |
+
+A read endpoint is anonymous and CDN-cacheable, so a 400 there breaks the page for visitors over a typo; echoing the resolved locale back keeps the fallback from being silent. A write that fell back would put content in the wrong language or delete the wrong language's draft, which is worth an error.
+
+`version` lives on the row and is therefore per locale: editing the English copy never bumps the Turkish one, so two translators do not hand each other spurious 409s. Drafts are laned the same way, so both languages of one page can have autosaves in flight at once.
+
+Reads are lenient, writes are not: a write carrying a locale nobody declared is a **400** even when the collection or client declares none at all, which is what surfaces "the app is configured for two languages but the backend was never told".
+
+Collections are global rather than tenant-scoped, so they declare their own `locales` in their definition file instead of taking the client's. A collection record and its translation get **different slugs** (`yeni-urun` / `new-product`) because that is what is correct for SEO, so they are linked by a `translationGroupId` rather than by slug; a single-item read returns its siblings for a language switcher. See [docs/collections.md](docs/collections.md#locales).
+
 ### Drafts
 
 Drafts are **per user, per page (or per collection item), stored in Redis**, and invisible to everyone but their author. `PUT /cms/draft` merges the blocks it receives into the caller's existing overlay for that slug, so an editor can autosave one block at a time without dropping the others; `GET /cms/content` returns each block's published `value` plus a `draftValue` only where the caller's draft actually differs. Sending a block its published value therefore reverts it. `DELETE /cms/draft?slug=…` discards the whole page draft in one call, which is the honest way to abandon changes: echoing published values back would resurrect them as a real draft if someone else published in the meantime, since draft writes carry no version check. Publishing via `PUT /cms/content` deletes the caller's draft for that page too. Collections have the same mechanism per item, except an item draft is one whole-object form and is replaced, not merged, plus a **new-item draft** for content that does not have a slug yet.
@@ -342,12 +379,12 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 
 | Method & path | Policy | Purpose |
 |---|---|---|
-| `GET /cms/content?slug=` | ContentRead | published blocks; the caller's draft overlay is added only for `content:write` |
-| `GET /cms/public/{clientKey}/content?slug=` | anon\* | as above, credential-free, CDN-cacheable |
-| `PUT /cms/content` | ContentWrite | publish block values (optimistic concurrency) |
-| `PUT /cms/draft` | ContentWrite | merge blocks into the caller's page draft |
-| `DELETE /cms/draft?slug=` | ContentWrite | discard the caller's whole page draft |
-| `POST /cms/sync` | SchemaSync | whole-state manifest reconcile |
+| `GET /cms/content?slug=&locale=` | ContentRead | published blocks; the caller's draft overlay is added only for `content:write` |
+| `GET /cms/public/{clientKey}/content?slug=&locale=` | anon\* | as above, credential-free, CDN-cacheable |
+| `PUT /cms/content?locale=` | ContentWrite | publish block values (optimistic concurrency) |
+| `PUT /cms/draft?locale=` | ContentWrite | merge blocks into the caller's page draft |
+| `DELETE /cms/draft?slug=&locale=` | ContentWrite | discard the caller's whole page draft |
+| `POST /cms/sync?locales=` | SchemaSync | whole-state manifest reconcile; also declares the client's locales |
 
 **Collections**
 
@@ -355,14 +392,14 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 |---|---|---|
 | `GET /cms/collections/me` | ContentWrite | collections the caller may create in, with schemas |
 | `GET /cms/collections/{key}/schema` | anon\* | field schema of a collection |
-| `GET /cms/collections/{key}/?offset=&limit=&field=` | anon\* | paged, filterable listing |
+| `GET /cms/collections/{key}/?offset=&limit=&locale=&field=` | anon\* | paged, filterable listing |
 | `GET /cms/collections/{key}/{slug}` | anon\* | single item (+ caller's draft when signed in) |
-| `POST /cms/collections/{key}/` | ContentWrite | create item (auto-generated slug collections) |
-| `PUT /cms/collections/{key}/{slug}` | ContentWrite | upsert item (user-defined slug collections) / update |
+| `POST /cms/collections/{key}/?locale=&translationGroup=` | ContentWrite | create item (auto-generated slug collections) |
+| `PUT /cms/collections/{key}/{slug}?locale=&translationGroup=` | ContentWrite | upsert item (user-defined slug collections) / update |
 | `PUT /cms/collections/{key}/{slug}/draft` | ContentWrite | save item draft |
 | `DELETE /cms/collections/{key}/{slug}/draft` | ContentWrite | discard item draft |
-| `POST /cms/collections/{key}/drafts` | ContentWrite | save draft for a not-yet-created item |
-| `DELETE /cms/collections/{key}/drafts` | ContentWrite | discard the not-yet-created item draft |
+| `POST /cms/collections/{key}/drafts?locale=&translationGroup=` | ContentWrite | save draft for a not-yet-created item |
+| `DELETE /cms/collections/{key}/drafts?locale=` | ContentWrite | discard the not-yet-created item draft |
 
 **Auth**
 

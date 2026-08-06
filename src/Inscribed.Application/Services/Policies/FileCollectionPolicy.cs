@@ -24,6 +24,8 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public bool AllowAnonymousRead => _definition.AllowAnonymousRead;
 
+    public IReadOnlyList<string> Locales => _definition.Locales;
+
     public string SourceFile => _definition.SourceFile;
 
     public bool CanEdit(ClaimsPrincipal user, string slug) => true;

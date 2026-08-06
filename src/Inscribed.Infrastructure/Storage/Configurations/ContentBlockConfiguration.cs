@@ -16,6 +16,8 @@ internal sealed class ContentBlockConfiguration : IEntityTypeConfiguration<Conte
 
         builder.Property(x => x.ClientId).IsRequired().HasMaxLength(256).HasColumnOrder(1);
 
+        builder.Property(x => x.Locale).HasMaxLength(16);
+
         builder.Property(x => x.Slug).IsRequired().HasMaxLength(512);
 
         builder.Property(x => x.BlockPath).IsRequired().HasMaxLength(256);
@@ -38,9 +40,9 @@ internal sealed class ContentBlockConfiguration : IEntityTypeConfiguration<Conte
 
         builder.Property(x => x.ArchivedAt);
 
-        builder.HasIndex(x => new { x.ClientId, x.Slug, x.BlockPath }).IsUnique();
+        builder.HasIndex(x => new { x.ClientId, x.Locale, x.Slug, x.BlockPath }).IsUnique().AreNullsDistinct(false);
 
-        builder.HasIndex(x => new { x.ClientId, x.Slug });
+        builder.HasIndex(x => new { x.ClientId, x.Locale, x.Slug });
 
         builder.HasQueryFilter(x => !x.IsArchived);
     }

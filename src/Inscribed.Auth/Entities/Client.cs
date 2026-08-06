@@ -7,10 +7,12 @@ public sealed class Client : Entity
     public string Key { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public string[] AllowedRedirectOrigins { get; private set; } = [];
+    public string[] Locales { get; private set; } = [];
     public bool AllowAnonymousContentRead { get; private set; }
     public bool IsActive { get; private set; }
 
     private const int MaxKeyLength = 64;
+    private const int MaxLocaleLength = 16;
 
     private Client() { }
 
@@ -41,6 +43,21 @@ public sealed class Client : Entity
         AllowAnonymousContentRead = allowAnonymousContentRead;
         UpdatedAt = utcNow;
         Version += 1;
+    }
+
+    public bool SetLocales(IEnumerable<string>? locales, DateTime utcNow)
+    {
+        var validated = ValidateLocales(locales);
+
+        if (Locales.SequenceEqual(validated, StringComparer.Ordinal))
+        {
+            return false;
+        }
+
+        Locales = validated;
+        UpdatedAt = utcNow;
+        Version += 1;
+        return true;
     }
 
     public void SetActive(bool isActive, DateTime utcNow)
@@ -78,5 +95,49 @@ public sealed class Client : Entity
         }
 
         return trimmed;
+    }
+
+    private static string[] ValidateLocales(IEnumerable<string>? locales)
+    {
+        if (locales is null)
+        {
+            return [];
+        }
+
+        var validated = new List<string>();
+
+        foreach (var locale in locales)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(locale);
+
+            var trimmed = locale.Trim();
+
+            if (trimmed.Length > MaxLocaleLength)
+            {
+                throw new ArgumentException($"Locale must be at most {MaxLocaleLength} characters.", nameof(locales));
+            }
+
+            foreach (var character in trimmed)
+            {
+                if (!char.IsAsciiLetterLower(character) && !char.IsAsciiDigit(character) && character is not '-')
+                {
+                    throw new ArgumentException("Locale may contain only lowercase letters, digits and hyphens.", nameof(locales));
+                }
+            }
+
+            if (trimmed.StartsWith('-') || trimmed.EndsWith('-'))
+            {
+                throw new ArgumentException("Locale must start and end with a letter or digit.", nameof(locales));
+            }
+
+            if (validated.Contains(trimmed, StringComparer.Ordinal))
+            {
+                throw new ArgumentException($"Locale '{trimmed}' is listed more than once.", nameof(locales));
+            }
+
+            validated.Add(trimmed);
+        }
+
+        return [.. validated];
     }
 }

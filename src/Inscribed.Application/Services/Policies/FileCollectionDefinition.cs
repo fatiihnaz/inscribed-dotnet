@@ -9,6 +9,7 @@ public sealed record FileCollectionDefinition(
     SlugSource SlugSource,
     string? SlugSourceField,
     bool AllowAnonymousRead,
+    IReadOnlyList<string> Locales,
     string SourceFile,
     IReadOnlyList<EnrichmentDefinition> Enrichments
 );

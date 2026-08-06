@@ -15,6 +15,7 @@ public interface ICollectionService
 
     Task<PagedListResponse<CollectionItemResponse>> ListAsync(
         string key,
+        string? requestedLocale,
         ClaimsPrincipal user,
         string userId,
         IDictionary<string, string>? filters,
@@ -24,15 +25,15 @@ public interface ICollectionService
 
     Task<CollectionItemResponse?> GetAsync(string key, string slug, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default);
 
-    Task<CollectionItemResponse> UpsertAsync(string key, string slug, UpsertCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default);
+    Task<CollectionItemResponse> UpsertAsync(string key, string slug, string? requestedLocale, Guid? translationGroup, UpsertCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default);
 
-    Task<CollectionItemResponse> CreateAutoSlugAsync(string key, CreateCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default);
+    Task<CollectionItemResponse> CreateAutoSlugAsync(string key, string? requestedLocale, Guid? translationGroup, CreateCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default);
 
     Task SaveItemDraftAsync(string key, string slug, string userId, ClaimsPrincipal user, SaveDraftRequest request, CancellationToken cancellationToken = default);
 
-    Task SaveNewDraftAsync(string key, string userId, ClaimsPrincipal user, SaveNewDraftRequest request, CancellationToken cancellationToken = default);
+    Task SaveNewDraftAsync(string key, string? requestedLocale, Guid? translationGroup, string userId, ClaimsPrincipal user, SaveNewDraftRequest request, CancellationToken cancellationToken = default);
 
     Task DiscardItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default);
 
-    Task DiscardNewDraftAsync(string key, string userId, CancellationToken cancellationToken = default);
+    Task DiscardNewDraftAsync(string key, string? requestedLocale, string userId, CancellationToken cancellationToken = default);
 }
