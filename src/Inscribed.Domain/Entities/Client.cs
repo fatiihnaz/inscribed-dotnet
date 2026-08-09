@@ -1,12 +1,8 @@
-using Inscribed.Domain.Entities;
-
-namespace Inscribed.Auth.Entities;
+namespace Inscribed.Domain.Entities;
 
 public sealed class Client : Entity
 {
     public string Key { get; private set; } = default!;
-    public string Name { get; private set; } = default!;
-    public string[] AllowedRedirectOrigins { get; private set; } = [];
     public string[] Locales { get; private set; } = [];
     public bool AllowAnonymousContentRead { get; private set; }
     public bool IsActive { get; private set; }
@@ -16,17 +12,14 @@ public sealed class Client : Entity
 
     private Client() { }
 
-    public static Client Create(string key, string name, IEnumerable<string>? allowedRedirectOrigins, DateTime utcNow)
+    public static Client Create(string key, DateTime utcNow)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         return new Client
         {
             Id = Guid.NewGuid(),
             Key = ValidateKey(key),
-            Name = name.Trim(),
-            AllowedRedirectOrigins = allowedRedirectOrigins?.ToArray() ?? [],
             IsActive = true,
             CreatedAt = utcNow,
             UpdatedAt = utcNow,
@@ -34,12 +27,13 @@ public sealed class Client : Entity
         };
     }
 
-    public void Update(string name, IEnumerable<string> allowedRedirectOrigins, bool allowAnonymousContentRead, DateTime utcNow)
+    public void Update(bool allowAnonymousContentRead, DateTime utcNow)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (AllowAnonymousContentRead == allowAnonymousContentRead)
+        {
+            return;
+        }
 
-        Name = name.Trim();
-        AllowedRedirectOrigins = allowedRedirectOrigins?.ToArray() ?? [];
         AllowAnonymousContentRead = allowAnonymousContentRead;
         UpdatedAt = utcNow;
         Version += 1;
@@ -72,8 +66,10 @@ public sealed class Client : Entity
         Version += 1;
     }
 
-    private static string ValidateKey(string key)
+    public static string ValidateKey(string key)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
         var trimmed = key.Trim();
 
         if (trimmed.Length > MaxKeyLength)

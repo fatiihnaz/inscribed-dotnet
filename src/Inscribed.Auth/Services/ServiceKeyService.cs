@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Entities;
@@ -36,12 +36,12 @@ internal sealed record ValidatedServiceKey(Guid Id, string ClientKey, string Nam
 internal sealed class ServiceKeyService : IServiceKeyService
 {
     private readonly IServiceKeyRepository _serviceKeys;
-    private readonly IClientRepository _clients;
+    private readonly IClientIdentityRepository _clients;
     private readonly ILogger<ServiceKeyService> _logger;
 
     public ServiceKeyService(
         IServiceKeyRepository serviceKeys,
-        IClientRepository clients,
+        IClientIdentityRepository clients,
         ILogger<ServiceKeyService> logger)
     {
         _serviceKeys = serviceKeys;

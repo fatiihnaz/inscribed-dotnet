@@ -143,6 +143,17 @@ You now have a running CMS with one tenant, one synced page, and a working admin
 
 A **Client** is a tenant: one site or app with its own key, allowed login redirect origins, and page content. The client key travels in the **`azp`** claim of every access token and every service key principal, and page reads/writes are scoped by it. Users are global; a **Membership** binds a user to a client with capabilities, so the same person can be an editor on one site and nothing on another. Clients are managed through `/admin/clients`; the `admin` client used by the admin console itself is seeded at startup.
 
+A tenant is stored in **two halves**, because [the auth module is replaceable](#authentication-and-authorization):
+
+| Half | Table | Holds | Owner |
+|---|---|---|---|
+| CMS client | `clients` | `locales`, `allowAnonymousContentRead`, `isActive` | the CMS |
+| Client identity | `auth_clients` | name, allowed redirect origins, `isActive` | the identity provider |
+
+The split exists so an installation can swap the bundled auth for Keycloak: the `azp` claim then comes from Keycloak, but locales and anonymous-read are CMS policy that no identity provider knows about. `POST /admin/clients` writes the CMS half itself and delegates the identity half to an injected `IClientIdentityStore` — the default implementation writes `auth_clients`, and a Keycloak deployment supplies its own (or a no-op, if clients are registered over there by hand). Nothing under `/cms/*` reads the identity half.
+
+**Registration is mandatory and always goes through this API.** A token whose `azp` has no `clients` row is rejected with **403** on every `/cms/*` content route; there are no implicit tenants. Collections are unaffected — they are installation-wide and never consult a client.
+
 > **One limit:** collection items are currently **not** tenant-scoped; a collection's data is shared across all clients of an installation. Page content blocks are fully scoped per client.
 
 ### Pages and content blocks
@@ -321,8 +332,14 @@ erDiagram
 
     Client {
         string Key "azp claim, tenant id"
-        string[] AllowedRedirectOrigins
+        string[] Locales
         bool AllowAnonymousContentRead
+        bool IsActive
+    }
+    ClientIdentity {
+        string Key "same azp, identity half"
+        string[] AllowedRedirectOrigins
+        bool IsActive
     }
     User {
         string Email
@@ -416,7 +433,7 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 | Method & path | Purpose |
 |---|---|
 | `GET /admin/users` | list users (created on first login) |
-| `GET`/`POST /admin/clients`, `PUT /admin/clients/{key}` | tenant CRUD incl. `allowAnonymousContentRead`, `isActive` |
+| `GET`/`POST /admin/clients`, `PUT /admin/clients/{key}` | tenant CRUD incl. `allowAnonymousContentRead`, `isActive`; writes both halves |
 | `GET`/`POST /admin/clients/{key}/memberships` | list who can reach a client / upsert a user's capabilities |
 | `DELETE /admin/clients/{key}/memberships/{email}` | remove membership |
 | `GET`/`POST /admin/clients/{key}/service-keys` | list (prefix + metadata only) / create (raw key shown once) |
@@ -458,9 +475,9 @@ docker compose run --rm admin client list                      # one-shot, works
 |---|---|
 | `status` | tenant, user and active-key counts plus the active signing key |
 | `user list` | users, with their Google link and active state |
-| `client list` | tenants, with active state and anonymous-read flag |
-| `client show --key` | one tenant in full: origins, creation time, key and member counts |
-| `client create --key --name [--origins a,b]` | create a tenant |
+| `client list` | tenants, with active state, anonymous-read flag and locales |
+| `client show --key` | one tenant in full, both halves: name, origins, locales, creation time, key and member counts |
+| `client create --key --name [--origins a,b]` | create a tenant (CMS half + identity half) |
 | `client update --key --name [--origins a,b] [--active] [--anonymous-read]` | update a tenant; omitted flags keep their current value |
 | `membership list --client` | who can reach a tenant, and with which capabilities |
 | `membership set --client --email [--capabilities a,b]` | set a user's capabilities on a tenant (**replaces** the existing set) |

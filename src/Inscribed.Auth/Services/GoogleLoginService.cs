@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Inscribed.Auth.Entities;
@@ -21,14 +21,14 @@ internal sealed class GoogleLoginService : IGoogleLoginService
     private static readonly TimeSpan StateTtl = TimeSpan.FromMinutes(10);
 
     private readonly IGoogleOAuthClient _google;
-    private readonly IClientRepository _clients;
+    private readonly IClientIdentityRepository _clients;
     private readonly IUserRepository _users;
     private readonly IRefreshTokenService _refreshTokens;
     private readonly IDistributedCache _cache;
 
     public GoogleLoginService(
         IGoogleOAuthClient google,
-        IClientRepository clients,
+        IClientIdentityRepository clients,
         IUserRepository users,
         IRefreshTokenService refreshTokens,
         IDistributedCache cache)
@@ -118,7 +118,7 @@ internal sealed class GoogleLoginService : IGoogleLoginService
 
     private static string CacheKey(string state) => $"auth:login:{state}";
 
-    private static bool IsAllowedRedirect(Client client, string redirectUri)
+    private static bool IsAllowedRedirect(ClientIdentity client, string redirectUri)
     {
         if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri))
         {

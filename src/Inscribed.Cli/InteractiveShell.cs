@@ -1,4 +1,5 @@
 using System.Text;
+using Inscribed.Application.Services;
 using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +24,7 @@ internal static class InteractiveShell
             if (clientKeys is null)
             {
                 using var scope = scopes.CreateScope();
-                var clients = scope.ServiceProvider.GetRequiredService<IAdminService>().ListClientsAsync().GetAwaiter().GetResult();
+                var clients = scope.ServiceProvider.GetRequiredService<IClientService>().ListAsync().GetAwaiter().GetResult();
                 clientKeys = [.. clients.Select(client => client.Key)];
             }
 
@@ -72,7 +73,7 @@ internal static class InteractiveShell
             {
                 using var scope = scopes.CreateScope();
                 await AdminCommands.RunAsync(
-                    scope.ServiceProvider.GetRequiredService<IAdminService>(),
+                    scope.ServiceProvider,
                     args,
                     new ShellInteraction(guided: args.Length <= 2, defaults: Defaults(args, context)));
             }
@@ -122,9 +123,9 @@ internal static class InteractiveShell
             var detail = await scope.ServiceProvider.GetRequiredService<IAdminService>().GetClientAsync(key);
 
             Output.Blank();
-            Output.Note(Output.Dim($"Context: {detail.Client.Key} ({detail.Client.Name})"));
+            Output.Note(Output.Dim($"Context: {detail.Key} ({detail.Name})"));
             Output.Blank();
-            return detail.Client.Key;
+            return detail.Key;
         }
         catch (Exception exception)
         {

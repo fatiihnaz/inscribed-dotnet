@@ -1,4 +1,3 @@
-using Inscribed.Auth.Entities;
 using Inscribed.Auth.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -24,24 +23,6 @@ public static class AdminEndpoints
                 user.IsActive,
                 user.CreatedAt,
             }));
-        });
-
-        group.MapGet("/clients", async (IAdminService admin, CancellationToken ct) =>
-        {
-            var all = await admin.ListClientsAsync(ct);
-            return Results.Ok(all.Select(ToClientResponse));
-        });
-
-        group.MapPost("/clients", async (CreateClientRequest request, IAdminService admin, CancellationToken ct) =>
-        {
-            var client = await admin.CreateClientAsync(request.Key, request.Name, request.AllowedRedirectOrigins, ct);
-            return Results.Created($"/admin/clients/{client.Key}", ToClientResponse(client));
-        });
-
-        group.MapPut("/clients/{key}", async (string key, UpdateClientRequest request, IAdminService admin, CancellationToken ct) =>
-        {
-            var client = await admin.UpdateClientAsync(key, request.Name, request.AllowedRedirectOrigins, request.IsActive, request.AllowAnonymousContentRead, ct);
-            return Results.Ok(ToClientResponse(client));
         });
 
         group.MapGet("/clients/{key}/memberships", async (string key, IAdminService admin, CancellationToken ct) =>
@@ -107,23 +88,7 @@ public static class AdminEndpoints
 
         return app;
     }
-
-    private static object ToClientResponse(Client client) => new
-    {
-        client.Id,
-        client.Key,
-        client.Name,
-        client.AllowedRedirectOrigins,
-        client.Locales,
-        client.AllowAnonymousContentRead,
-        client.IsActive,
-        client.CreatedAt,
-    };
 }
-
-public sealed record CreateClientRequest(string Key, string Name, string[]? AllowedRedirectOrigins);
-
-public sealed record UpdateClientRequest(string Name, string[]? AllowedRedirectOrigins, bool? IsActive, bool? AllowAnonymousContentRead);
 
 public sealed record UpsertMembershipRequest(string Email, string[]? Capabilities);
 

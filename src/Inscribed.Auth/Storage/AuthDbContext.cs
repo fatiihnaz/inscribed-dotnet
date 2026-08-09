@@ -1,4 +1,4 @@
-using Inscribed.Auth.Entities;
+﻿using Inscribed.Auth.Entities;
 using Inscribed.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,7 +12,7 @@ public sealed class AuthDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
 
-    public DbSet<Client> Clients => Set<Client>();
+    public DbSet<ClientIdentity> Clients => Set<ClientIdentity>();
 
     public DbSet<Membership> Memberships => Set<Membership>();
 

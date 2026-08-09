@@ -4,9 +4,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Inscribed.Auth.Storage.Configurations;
 
-internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
+internal sealed class ClientIdentityConfiguration : IEntityTypeConfiguration<ClientIdentity>
 {
-    public void Configure(EntityTypeBuilder<Client> builder)
+    public void Configure(EntityTypeBuilder<ClientIdentity> builder)
     {
         builder.ToTable("auth_clients");
 
@@ -19,10 +19,6 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
         builder.Property(x => x.Name).IsRequired().HasMaxLength(256);
 
         builder.Property(x => x.AllowedRedirectOrigins).IsRequired().HasColumnType("text[]");
-
-        builder.Property(x => x.Locales).IsRequired().HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
-
-        builder.Property(x => x.AllowAnonymousContentRead).IsRequired().HasDefaultValue(false);
 
         builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 

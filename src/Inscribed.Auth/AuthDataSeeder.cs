@@ -1,4 +1,4 @@
-using Inscribed.Auth.Entities;
+﻿using Inscribed.Auth.Entities;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +15,7 @@ public static class AuthDataSeeder
 
         if (!db.Clients.Any(c => c.Key == options.AdminClientKey))
         {
-            db.Clients.Add(Client.Create(options.AdminClientKey, "Admin Console", options.Admin.ConsoleOrigins, DateTime.UtcNow));
+            db.Clients.Add(ClientIdentity.Create(options.AdminClientKey, "Admin Console", options.Admin.ConsoleOrigins, DateTime.UtcNow));
             db.SaveChanges();
         }
 

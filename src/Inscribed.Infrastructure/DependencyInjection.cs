@@ -13,7 +13,7 @@ namespace Inscribed.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructureStorage(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("Default") ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
 
@@ -25,14 +25,27 @@ public static class DependencyInjection
             options.UseNpgsql(dataSource, npgsql =>
                 npgsql.MigrationsAssembly(typeof(CmsDbContext).Assembly.FullName)));
 
+        services.AddScoped<IClientRepository, ClientRepository>();
         services.AddScoped<IContentBlockRepository, ContentBlockRepository>();
         services.AddScoped<ICollectionItemRepository, CollectionItemRepository>();
 
+        return services;
+    }
+
+    public static IServiceCollection AddInfrastructureDrafts(this IServiceCollection services, IConfiguration configuration)
+    {
         var redisConnectionString = configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured.");
         services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);
         services.AddScoped<IDraftService, RedisDraftService>();
         services.AddScoped<ICollectionDraftService, RedisCollectionDraftService>();
 
+        return services;
+    }
+
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddInfrastructureStorage(configuration);
+        services.AddInfrastructureDrafts(configuration);
         services.AddCollectionEnrichment(configuration);
 
         return services;

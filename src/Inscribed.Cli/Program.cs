@@ -1,6 +1,7 @@
+using Inscribed.Application;
 using Inscribed.Auth;
-using Inscribed.Auth.Services;
 using Inscribed.Cli;
+using Inscribed.Infrastructure;
 using Inscribed.Domain.Exceptions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +38,8 @@ static async Task<int> RunAsync(string[] args)
     var builder = Host.CreateApplicationBuilder();
     builder.Logging.ClearProviders();
     builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions()));
+    builder.Services.AddInfrastructureStorage(builder.Configuration);
+    builder.Services.AddClientManagement();
     builder.Services.AddInscribedAuth(builder.Configuration);
 
     using var host = builder.Build();
@@ -50,7 +53,7 @@ static async Task<int> RunAsync(string[] args)
     }
 
     using var scope = host.Services.CreateScope();
-    await AdminCommands.RunAsync(scope.ServiceProvider.GetRequiredService<IAdminService>(), args);
+    await AdminCommands.RunAsync(scope.ServiceProvider, args);
     return 0;
 }
 

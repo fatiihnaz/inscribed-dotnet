@@ -1,21 +1,14 @@
-using Inscribed.Auth.Entities;
 using Microsoft.EntityFrameworkCore;
+using Inscribed.Application.Contracts.Repositories;
+using Inscribed.Domain.Entities;
 
-namespace Inscribed.Auth.Storage.Repositories;
-
-public interface IClientRepository
-{
-    Task<Client?> GetByKeyAsync(string key, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<Client>> GetAllAsync(CancellationToken cancellationToken = default);
-    void Add(Client client);
-    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
-}
+namespace Inscribed.Infrastructure.Storage.Repositories;
 
 internal sealed class ClientRepository : IClientRepository
 {
-    private readonly AuthDbContext _context;
+    private readonly CmsDbContext _context;
 
-    public ClientRepository(AuthDbContext context)
+    public ClientRepository(CmsDbContext context)
     {
         _context = context;
     }
@@ -26,7 +19,8 @@ internal sealed class ClientRepository : IClientRepository
     public async Task<IReadOnlyList<Client>> GetAllAsync(CancellationToken cancellationToken = default) =>
         await _context.Clients.OrderBy(x => x.Key).ToListAsync(cancellationToken);
 
-    public void Add(Client client) => _context.Clients.Add(client);
+    public Task AddAsync(Client client, CancellationToken cancellationToken = default) =>
+        _context.Clients.AddAsync(client, cancellationToken).AsTask();
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         _context.SaveChangesAsync(cancellationToken);

@@ -1,4 +1,4 @@
-using Inscribed.Auth.Authorization;
+﻿using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Entities;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Storage.Repositories;
@@ -10,11 +10,8 @@ namespace Inscribed.Auth.Services;
 public interface IAdminService
 {
     Task<IReadOnlyList<User>> ListUsersAsync(CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<Client>> ListClientsAsync(CancellationToken cancellationToken = default);
     Task<ClientDetail> GetClientAsync(string key, CancellationToken cancellationToken = default);
     Task<AdminOverview> GetOverviewAsync(CancellationToken cancellationToken = default);
-    Task<Client> CreateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, CancellationToken cancellationToken = default);
-    Task<Client> UpdateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, bool? isActive, bool? allowAnonymousContentRead, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<MembershipEntry>> ListMembershipsAsync(string clientKey, CancellationToken cancellationToken = default);
     Task<MembershipResult> UpsertMembershipAsync(string clientKey, string email, IReadOnlyList<string>? capabilities, CancellationToken cancellationToken = default);
     Task RemoveMembershipAsync(string clientKey, string email, CancellationToken cancellationToken = default);
@@ -28,7 +25,7 @@ public sealed record MembershipResult(Guid UserId, string Email, string ClientKe
 
 public sealed record MembershipEntry(Guid UserId, string Email, string DisplayName, bool IsActive, string[] Capabilities);
 
-public sealed record ClientDetail(Client Client, int ServiceKeys, int ActiveServiceKeys, int Members);
+public sealed record ClientDetail(string Key, string Name, string[] AllowedRedirectOrigins, bool IsActive, int ServiceKeys, int ActiveServiceKeys, int Members);
 
 public sealed record AdminOverview(int Clients, int Users, int ActiveServiceKeys, string SigningKeyId);
 
@@ -37,7 +34,7 @@ public sealed record ServiceKeyCreated(Guid Id, string KeyPrefix, string RawKey)
 internal sealed class AdminService : IAdminService
 {
     private readonly IUserRepository _users;
-    private readonly IClientRepository _clients;
+    private readonly IClientIdentityRepository _clients;
     private readonly IMembershipRepository _memberships;
     private readonly IServiceKeyRepository _serviceKeys;
     private readonly IServiceKeyService _serviceKeyService;
@@ -46,7 +43,7 @@ internal sealed class AdminService : IAdminService
 
     public AdminService(
         IUserRepository users,
-        IClientRepository clients,
+        IClientIdentityRepository clients,
         IMembershipRepository memberships,
         IServiceKeyRepository serviceKeys,
         IServiceKeyService serviceKeyService,
@@ -64,8 +61,6 @@ internal sealed class AdminService : IAdminService
 
     public Task<IReadOnlyList<User>> ListUsersAsync(CancellationToken cancellationToken = default) => _users.GetAllAsync(cancellationToken);
 
-    public Task<IReadOnlyList<Client>> ListClientsAsync(CancellationToken cancellationToken = default) => _clients.GetAllAsync(cancellationToken);
-
     public Task<IReadOnlyList<ServiceKey>> ListServiceKeysAsync(string clientKey, CancellationToken cancellationToken = default) => _serviceKeys.GetByClientKeyAsync(clientKey, cancellationToken);
 
     public string RotateSigningKey() => _signingKeys.Rotate();
@@ -82,7 +77,14 @@ internal sealed class AdminService : IAdminService
         var keys = await _serviceKeys.GetByClientKeyAsync(client.Key, cancellationToken);
         var members = await _memberships.CountByClientAsync(client.Id, cancellationToken);
 
-        return new ClientDetail(client, keys.Count, keys.Count(serviceKey => serviceKey.IsActive(now)), members);
+        return new ClientDetail(
+            client.Key,
+            client.Name,
+            client.AllowedRedirectOrigins,
+            client.IsActive,
+            keys.Count,
+            keys.Count(serviceKey => serviceKey.IsActive(now)),
+            members);
     }
 
     public async Task<AdminOverview> GetOverviewAsync(CancellationToken cancellationToken = default)
@@ -99,48 +101,6 @@ internal sealed class AdminService : IAdminService
         }
 
         return new AdminOverview(clients.Count, users.Count, activeKeys, _signingKeys.GetActiveSigningCredentials().Key.KeyId);
-    }
-
-    public async Task<Client> CreateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(name))
-        {
-            throw new ValidationException(["key and name are required."]);
-        }
-
-        if (await _clients.GetByKeyAsync(key.Trim(), cancellationToken) is not null)
-        {
-            throw new ConflictException($"Client '{key}' already exists.");
-        }
-
-        var client = Client.Create(key, name, allowedRedirectOrigins, DateTime.UtcNow);
-        _clients.Add(client);
-        await _clients.SaveChangesAsync(cancellationToken);
-        return client;
-    }
-
-    public async Task<Client> UpdateClientAsync(string key, string name, IReadOnlyList<string>? allowedRedirectOrigins, bool? isActive, bool? allowAnonymousContentRead, CancellationToken cancellationToken = default)
-    {
-        var client = await _clients.GetByKeyAsync(key, cancellationToken);
-        if (client is null)
-        {
-            throw new NotFoundException($"Client '{key}' not found.");
-        }
-
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ValidationException(["name is required."]);
-        }
-
-        var now = DateTime.UtcNow;
-        client.Update(name, allowedRedirectOrigins ?? [], allowAnonymousContentRead ?? client.AllowAnonymousContentRead, now);
-        if (isActive is { } active)
-        {
-            client.SetActive(active, now);
-        }
-
-        await _clients.SaveChangesAsync(cancellationToken);
-        return client;
     }
 
     public async Task<IReadOnlyList<MembershipEntry>> ListMembershipsAsync(string clientKey, CancellationToken cancellationToken = default)

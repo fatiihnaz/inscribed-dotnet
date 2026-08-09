@@ -10,8 +10,15 @@ public static class DependencyInjection
 {
     private const string DefaultCollectionsPath = "collections";
 
+    public static IServiceCollection AddClientManagement(this IServiceCollection services)
+    {
+        services.AddScoped<IClientService, ClientService>();
+        return services;
+    }
+
     public static IServiceCollection AddApplication(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddClientManagement();
         services.AddScoped<IContentService, ContentService>();
         services.AddScoped<ICollectionService, CollectionService>();
 

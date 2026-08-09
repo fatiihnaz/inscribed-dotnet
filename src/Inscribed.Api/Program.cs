@@ -80,6 +80,7 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<ISigningKeyStore>().GetPublicJwks();
     scope.ServiceProvider.GetRequiredService<ICollectionPolicyResolver>();
     scope.ServiceProvider.SeedInscribedAuth();
+    scope.ServiceProvider.SeedInscribedClients();
 }
 
 app.UseExceptionHandler();
@@ -88,6 +89,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapCmsEndpoints();
 app.MapCollectionEndpoints();
+app.MapClientEndpoints();
 app.MapInscribedAuthEndpoints();
 
 app.Run();

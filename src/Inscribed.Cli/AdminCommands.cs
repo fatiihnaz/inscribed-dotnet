@@ -1,5 +1,7 @@
 using System.Text;
+using Inscribed.Application.Services;
 using Inscribed.Auth.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using Inscribed.Auth.Entities;
 using Inscribed.Auth.Services;
 using Inscribed.Domain.Exceptions;
@@ -92,11 +94,14 @@ internal static class AdminCommands
         Output.Blank();
     }
 
-    public static async Task RunAsync(IAdminService admin, string[] args, IInteraction? interaction = null)
+    public static async Task RunAsync(IServiceProvider services, string[] args, IInteraction? interaction = null)
     {
         var group = args[0];
         var action = args.Length > 1 ? args[1] : string.Empty;
         var options = CommandOptions.Parse(args, 2, interaction);
+
+        var admin = services.GetRequiredService<IAdminService>();
+        var clients = services.GetRequiredService<IClientService>();
 
         switch (group, action)
         {
@@ -107,16 +112,16 @@ internal static class AdminCommands
                 await ListUsersAsync(admin);
                 return;
             case ("client", "list"):
-                await ListClientsAsync(admin);
+                await ListClientsAsync(clients);
                 return;
             case ("client", "show"):
-                await ShowClientAsync(admin, options);
+                await ShowClientAsync(clients, admin, options);
                 return;
             case ("client", "create"):
-                await CreateClientAsync(admin, options);
+                await CreateClientAsync(clients, options);
                 return;
             case ("client", "update"):
-                await UpdateClientAsync(admin, options);
+                await UpdateClientAsync(clients, options);
                 return;
             case ("membership", "list"):
                 await ListMembershipsAsync(admin, options);
@@ -210,54 +215,54 @@ internal static class AdminCommands
             ("SIGNING KEY", overview.SigningKeyId));
     }
 
-    private static async Task ShowClientAsync(IAdminService admin, CommandOptions options)
+    private static async Task ShowClientAsync(IClientService clients, IAdminService admin, CommandOptions options)
     {
-        var detail = await admin.GetClientAsync(options.Require("key"));
-        var client = detail.Client;
+        var key = options.Require("key");
+        var client = await clients.GetAsync(key);
+        var identity = await admin.GetClientAsync(key);
 
         Output.Detail(
             ("KEY", client.Key),
-            ("NAME", client.Name),
+            ("NAME", identity.Name),
             ("STATE", client.IsActive ? Output.Green("active") : Output.Red("inactive")),
             ("ANON-READ", client.AllowAnonymousContentRead ? "yes" : "no"),
-            ("LOCALES", client.Locales.Length == 0 ? Output.Dim("(not localized)") : string.Join(", ", client.Locales)),
-            ("ORIGINS", client.AllowedRedirectOrigins.Length == 0 ? Output.Dim("(none)") : string.Join(", ", client.AllowedRedirectOrigins)),
+            ("LOCALES", client.Locales.Count == 0 ? Output.Dim("(not localized)") : string.Join(", ", client.Locales)),
+            ("ORIGINS", identity.AllowedRedirectOrigins.Length == 0 ? Output.Dim("(none)") : string.Join(", ", identity.AllowedRedirectOrigins)),
             ("CREATED", client.CreatedAt.ToString("yyyy-MM-dd HH:mm 'UTC'")),
-            ("KEYS", $"{detail.ServiceKeys} ({detail.ActiveServiceKeys} active)"),
-            ("MEMBERS", detail.Members.ToString()));
+            ("KEYS", $"{identity.ServiceKeys} ({identity.ActiveServiceKeys} active)"),
+            ("MEMBERS", identity.Members.ToString()));
     }
 
     private static string Count(int total, string noun) => $"{total} {noun}{(total == 1 ? string.Empty : "s")}";
 
-    private static async Task ListClientsAsync(IAdminService admin)
+    private static async Task ListClientsAsync(IClientService clients)
     {
-        var table = new Table("KEY", "NAME", "STATE", "ANON-READ", "LOCALES");
-        var clients = await admin.ListClientsAsync();
+        var table = new Table("KEY", "STATE", "ANON-READ", "LOCALES");
+        var all = await clients.ListAsync();
 
-        foreach (var client in clients)
+        foreach (var client in all)
         {
             table.Add(
                 client.Key,
-                client.Name,
                 client.IsActive ? Output.Green("active") : Output.Red("inactive"),
                 client.AllowAnonymousContentRead ? "yes" : "no",
-                client.Locales.Length == 0 ? Output.Dim("-") : string.Join(",", client.Locales));
+                client.Locales.Count == 0 ? Output.Dim("-") : string.Join(",", client.Locales));
         }
 
-        table.Write("No clients.", Count(clients.Count, "client"));
+        table.Write("No clients.", Count(all.Count, "client"));
     }
 
-    private static async Task CreateClientAsync(IAdminService admin, CommandOptions options)
+    private static async Task CreateClientAsync(IClientService clients, CommandOptions options)
     {
         var name = options.Require("name");
         var key = options.Require("key", Slugify(name));
-        var client = await admin.CreateClientAsync(key, name, options.GetList("origins"));
+        var client = await clients.CreateAsync(key, name, options.GetList("origins"));
         Console.WriteLine($"Created client '{client.Key}' ({client.Id}).");
     }
 
-    private static async Task UpdateClientAsync(IAdminService admin, CommandOptions options)
+    private static async Task UpdateClientAsync(IClientService clients, CommandOptions options)
     {
-        var client = await admin.UpdateClientAsync(
+        var client = await clients.UpdateAsync(
             options.Require("key"),
             options.Require("name"),
             options.GetList("origins"),

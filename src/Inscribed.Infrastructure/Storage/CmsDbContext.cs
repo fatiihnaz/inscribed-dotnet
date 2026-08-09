@@ -10,6 +10,8 @@ public sealed class CmsDbContext : DbContext
     {
     }
 
+    public DbSet<Client> Clients => Set<Client>();
+
     public DbSet<ContentBlock> ContentBlocks => Set<ContentBlock>();
 
     public DbSet<CollectionItem> CollectionItems => Set<CollectionItem>();

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Entities;
@@ -26,7 +26,7 @@ internal sealed class RefreshTokenService : IRefreshTokenService
 {
     private readonly IRefreshTokenRepository _refreshTokens;
     private readonly IUserRepository _users;
-    private readonly IClientRepository _clients;
+    private readonly IClientIdentityRepository _clients;
     private readonly IMembershipRepository _memberships;
     private readonly IJwtIssuer _jwtIssuer;
     private readonly AuthOptions _options;
@@ -34,7 +34,7 @@ internal sealed class RefreshTokenService : IRefreshTokenService
     public RefreshTokenService(
         IRefreshTokenRepository refreshTokens,
         IUserRepository users,
-        IClientRepository clients,
+        IClientIdentityRepository clients,
         IMembershipRepository memberships,
         IJwtIssuer jwtIssuer,
         IOptions<AuthOptions> options)
@@ -129,7 +129,7 @@ internal sealed class RefreshTokenService : IRefreshTokenService
         await _refreshTokens.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<string>> ResolveRolesAsync(User user, Client client, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<string>> ResolveRolesAsync(User user, ClientIdentity client, CancellationToken cancellationToken)
     {
         var membership = await _memberships.GetAsync(user.Id, client.Id, cancellationToken);
         var roles = new List<string>(membership?.Roles ?? []);

@@ -1,3 +1,4 @@
+﻿using Inscribed.Application.Contracts.Identity;
 using Inscribed.Auth.Authentication;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Services;
@@ -35,7 +36,8 @@ public static class DependencyInjection
 
         services.AddHttpClient();
         services.AddScoped<IUserRepository, UserRepository>();
-        services.AddScoped<IClientRepository, ClientRepository>();
+        services.AddScoped<IClientIdentityRepository, ClientIdentityRepository>();
+        services.AddScoped<IClientIdentityStore, AuthClientIdentityStore>();
         services.AddScoped<IMembershipRepository, MembershipRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IGoogleOAuthClient, GoogleOAuthClient>();

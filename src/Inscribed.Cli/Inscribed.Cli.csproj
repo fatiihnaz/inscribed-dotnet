@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Inscribed.Auth\Inscribed.Auth.csproj" />
+    <ProjectReference Include="..\Inscribed.Infrastructure\Inscribed.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
