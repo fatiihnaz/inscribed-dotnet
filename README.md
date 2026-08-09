@@ -458,8 +458,8 @@ dotnet run --project src/Inscribed.Cli -- client create --key my-site --name "My
 In Docker the CLI ships inside the same image as the API, so no SDK and no published database port are needed. The repository has a wrapper that picks the right way in:
 
 ```sh
-./admin                     # the interactive console  (Windows: .\admin.ps1)
-./admin client list         # a single command
+./scripts/admin                 # the interactive console  (Windows: .\scripts\admin.ps1)
+./scripts/admin client list     # a single command
 ```
 
 It runs the console **inside the live API container** when the stack is up, which creates no container at all, and falls back to a self-removing one-shot when the API is down. The underlying commands, if you prefer them explicit:
