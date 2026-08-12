@@ -1,3 +1,4 @@
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Options;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -35,7 +36,7 @@ internal sealed class JwtIssuer : IJwtIssuer
                 ["azp"] = clientKey,
                 ["name"] = displayName,
                 ["email"] = email,
-                ["roles"] = roles.ToArray(),
+                [CapabilityCatalog.RolesClaim] = roles.ToArray(),
             },
         };
 

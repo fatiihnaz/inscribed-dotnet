@@ -1,5 +1,6 @@
 ﻿using Inscribed.Application.Contracts.Identity;
 using Inscribed.Auth.Authentication;
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Services;
 using Inscribed.Auth.Storage;
@@ -33,6 +34,7 @@ public static class DependencyInjection
 
         services.AddSingleton<ISigningKeyStore, SigningKeyStore>();
         services.AddSingleton<IJwtIssuer, JwtIssuer>();
+        services.AddSingleton<IAdministratorPolicy, CapabilityAdministratorPolicy>();
 
         services.AddHttpClient();
         services.AddScoped<IUserRepository, UserRepository>();

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -64,9 +65,9 @@ internal sealed class ServiceTokenAuthenticationHandler : AuthenticationHandler<
             new("azp", key.ClientKey),
             new("name", key.Name),
         };
-        claims.AddRange(key.Roles.Select(role => new Claim("roles", role)));
+        claims.AddRange(key.Roles.Select(role => new Claim(CapabilityCatalog.RolesClaim, role)));
 
-        var identity = new ClaimsIdentity(claims, Scheme.Name, "name", "roles");
+        var identity = new ClaimsIdentity(claims, Scheme.Name, "name", CapabilityCatalog.RolesClaim);
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
     }
 }

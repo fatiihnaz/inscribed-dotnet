@@ -1,3 +1,4 @@
+using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Options;
 using Inscribed.Auth.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,7 +31,7 @@ internal sealed class ConfigureJwtBearerOptions : IConfigureNamedOptions<JwtBear
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidateIssuerSigningKey = true,
             NameClaimType = "name",
-            RoleClaimType = "roles",
+            RoleClaimType = CapabilityCatalog.RolesClaim,
             IssuerSigningKeyResolver = (_, _, kid, _) => _keys.GetValidationKeys(kid),
         };
     }

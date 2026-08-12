@@ -20,6 +20,19 @@ Everything the CMS reads from an authenticated request fits in five claims. As l
 
 There is deliberately no `preferred_username`: Inscribed has no username concept (no local accounts, no passwords), so the OIDC-standard `name` + `email` pair is emitted instead.
 
+The vocabulary itself belongs to this module, not to the CMS. `content:read`, `content:write`, `schema:sync`, `tenant:admin` and the `roles` claim that carries them are declared once, in [CapabilityCatalog](src/Inscribed.Auth/Authorization/CapabilityCatalog.cs), and nothing in `Inscribed.Application` names any of them. Replace the module and you bring your own names; there is no constant in the core to edit and no second list to drift.
+
+That holds because the two places capabilities are enforced are both outside the core. Endpoint authorization is wired in the composition root, where `RequireRole` reads the catalog. The one authorization question the CMS core has to ask for itself is whether a principal may act on a claim-derived item that is not their own, and it asks it through an interface:
+
+```csharp
+public interface IAdministratorPolicy
+{
+    bool IsAdministrator(ClaimsPrincipal user);
+}
+```
+
+`CapabilityAdministratorPolicy` answers it with `tenant:admin`. A replacement module registers its own implementation and answers with whatever its own tokens carry.
+
 ## Credentials
 
 | Credential | Form | Lifetime | Revocable | Carried in |
