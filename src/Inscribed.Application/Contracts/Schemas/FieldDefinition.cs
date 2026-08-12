@@ -7,7 +7,9 @@ public sealed record FieldDefinition(
     bool Required = false,
     string? Help = null,
     bool ReadOnly = false,
+    bool Computed = false,
     bool Filterable = false,
+    bool Sortable = false,
     IReadOnlyList<string>? Options = null,
     IReadOnlyList<FieldDefinition>? ItemFields = null
 );

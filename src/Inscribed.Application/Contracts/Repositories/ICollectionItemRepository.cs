@@ -11,11 +11,17 @@ public interface ICollectionItemRepository
         string key,
         string? locale,
         JsonObject? filterContainment,
+        CollectionSort sort,
+        bool archived,
         int offset,
         int limit,
         CancellationToken cancellationToken = default);
 
     Task<CollectionItem?> GetBySlugAsync(string key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<TakenSlug>> GetTakenSlugsAsync(string key, IReadOnlyCollection<string> slugs, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CollectionItem>> GetBySlugsAsync(string key, IReadOnlyCollection<string> slugs, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupAsync(string key, Guid translationGroupId, CancellationToken cancellationToken = default);
 

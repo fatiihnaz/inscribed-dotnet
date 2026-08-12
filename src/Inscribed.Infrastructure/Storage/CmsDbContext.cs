@@ -21,6 +21,8 @@ public sealed class CmsDbContext : DbContext
         modelBuilder.HasPostgresExtension("pgcrypto");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CmsDbContext).Assembly);
 
+        CmsDbFunctions.Register(modelBuilder);
+
         base.OnModelCreating(modelBuilder);
     }
 

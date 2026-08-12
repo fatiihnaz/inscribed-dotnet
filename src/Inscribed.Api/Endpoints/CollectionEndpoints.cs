@@ -1,5 +1,6 @@
 using Inscribed.Api.Authentication;
 using Inscribed.Application.Contracts.Requests;
+using Inscribed.Application.Contracts.Responses;
 using Inscribed.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 
@@ -9,6 +10,9 @@ public static class CollectionEndpoints
 {
     private const int PublicReadMaxAgeSeconds = 60;
     private const int PublicReadStaleSeconds = 300;
+
+    private static readonly HashSet<string> ReservedQueryKeys =
+        new(StringComparer.OrdinalIgnoreCase) { "offset", "limit", "locale", "sort", "archived" };
 
     public static IEndpointRouteBuilder MapCollectionEndpoints(this IEndpointRouteBuilder app)
     {
@@ -46,13 +50,14 @@ public static class CollectionEndpoints
             var offset = int.TryParse(query["offset"], out var o) ? Math.Max(0, o) : 0;
             var limit = int.TryParse(query["limit"], out var l) ? Math.Clamp(l, 1, 100) : 50;
             var locale = query["locale"].ToString();
+            var sort = query["sort"].ToString();
+            var archived = bool.TryParse(query["archived"], out var a) && a;
 
-            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "offset", "limit", "locale" };
             var filters = query
-                .Where(kv => !reserved.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                .Where(kv => !ReservedQueryKeys.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
 
-            var result = await service.ListAsync(key, locale, context.User, userId, filters, offset, limit, ct);
+            var result = await service.ListAsync(key, locale, context.User, userId, filters, sort, archived, offset, limit, ct);
             return Results.Ok(result);
         }).AllowAnonymous();
 
@@ -66,13 +71,13 @@ public static class CollectionEndpoints
             return Results.Created($"/cms/collections/{response.CollectionKey}/{response.Slug}", response);
         });
 
-        group.MapPost("/drafts", async (string key, string? locale, Guid? translationGroup, SaveNewDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPost("/drafts", async (string key, string? locale, Guid? translationGroup, SavePendingDraftRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var userId = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(userId))
                 return Results.Unauthorized();
 
-            await service.SaveNewDraftAsync(key, locale, translationGroup, userId, context.User, request, ct);
+            await service.SavePendingDraftAsync(key, locale, translationGroup, userId, context.User, request, ct);
             return Results.NoContent();
         });
 
@@ -82,7 +87,7 @@ public static class CollectionEndpoints
             if (string.IsNullOrWhiteSpace(userId))
                 return Results.Unauthorized();
 
-            await service.DiscardNewDraftAsync(key, locale, userId, ct);
+            await service.DiscardPendingDraftAsync(key, locale, userId, ct);
             return Results.NoContent();
         });
 
@@ -97,7 +102,11 @@ public static class CollectionEndpoints
             ApplyReadCacheHeaders(context, isEditor, isPublic);
 
             var item = await service.GetAsync(key, slug, context.User, userId, ct);
-            return item is null ? Results.NotFound() : Results.Ok(item);
+            if (item is not null)
+                return Results.Ok(item);
+
+            var virtualItem = await service.GetVirtualAsync(key, slug, context.User, userId, ct);
+            return virtualItem is null ? Results.NotFound() : Results.Ok(virtualItem);
         }).AllowAnonymous();
 
         group.MapPut("/{slug}", async (string key, string slug, string? locale, Guid? translationGroup, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
@@ -107,6 +116,26 @@ public static class CollectionEndpoints
                 return Results.Unauthorized();
 
             var response = await service.UpsertAsync(key, slug, locale, translationGroup, request, context.User, updatedBy, ct);
+            return Results.Ok(response);
+        });
+
+        group.MapDelete("/{slug}", async (string key, string slug, int? version, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var updatedBy = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(updatedBy))
+                return Results.Unauthorized();
+
+            var response = await service.ArchiveAsync(key, slug, version, context.User, updatedBy, ct);
+            return Results.Ok(response);
+        });
+
+        group.MapPost("/{slug}/restore", async (string key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var updatedBy = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(updatedBy))
+                return Results.Unauthorized();
+
+            var response = await service.RestoreAsync(key, slug, context.User, updatedBy, ct);
             return Results.Ok(response);
         });
 

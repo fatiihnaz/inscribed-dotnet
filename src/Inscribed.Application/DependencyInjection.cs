@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Inscribed.Application.Contracts.Identity;
 using Inscribed.Application.Contracts.Policies;
 using Inscribed.Application.Services;
 using Inscribed.Application.Services.Policies;
@@ -31,16 +32,15 @@ public static class DependencyInjection
 
         foreach (var definition in definitions)
         {
-            if (definition.Enrichments.Count == 0)
-            {
-                services.AddSingleton<ICollectionPolicy>(new FileCollectionPolicy(definition, []));
-                continue;
-            }
-
             services.AddSingleton<ICollectionPolicy>(sp =>
             {
+                var administrators = sp.GetRequiredService<IAdministratorPolicy>();
+
+                if (definition.Enrichments.Count == 0)
+                    return new FileCollectionPolicy(definition, [], administrators);
+
                 var factory = sp.GetRequiredService<ICollectionEnricherFactory>();
-                return new FileCollectionPolicy(definition, definition.Enrichments.Select(factory.Create).ToArray());
+                return new FileCollectionPolicy(definition, definition.Enrichments.Select(factory.Create).ToArray(), administrators);
             });
         }
 

@@ -18,6 +18,7 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         var (statusCode, title, detail) = exception switch
         {
             NotFoundException => (StatusCodes.Status404NotFound, "Not Found", exception.Message),
+            ArchivedException => (StatusCodes.Status409Conflict, "Conflict", exception.Message),
             ConcurrencyConflictException => (StatusCodes.Status409Conflict, "Conflict", exception.Message),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict", exception.Message),
             ValidationException => (StatusCodes.Status400BadRequest, "Validation Failed", exception.Message),
@@ -37,6 +38,12 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
             Detail = detail,
             Instance = httpContext.Request.Path
         };
+
+        if (exception is ArchivedException archived)
+        {
+            problem.Extensions["reason"] = "archived";
+            problem.Extensions["version"] = archived.Version;
+        }
 
         if (exception is ConcurrencyConflictException { Conflicts.Count: > 0 } conflict)
             problem.Extensions["conflicts"] = conflict.Conflicts;

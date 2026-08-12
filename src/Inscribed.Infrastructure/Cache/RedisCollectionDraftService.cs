@@ -18,16 +18,15 @@ public sealed class RedisCollectionDraftService : ICollectionDraftService
 
     private static string ItemKey(string key, string slug, string userId) => $"cd:item:{key}:{slug}:{userId}";
 
-    private static string NewKey(string key, string? locale, string userId) => $"cd:new:{key}:{locale ?? "_"}:{userId}";
+    private static string PendingKey(string key, string? locale, string userId) => $"cd:new:{key}:{locale ?? "_"}:{userId}";
+
+    private static DistributedCacheEntryOptions Expiry => new() { AbsoluteExpirationRelativeToNow = DraftTtl };
 
     public async Task SaveItemDraftAsync(string key, string slug, string userId, JsonObject data, CancellationToken cancellationToken = default)
     {
         var payload = new CollectionDraft(slug, data, DateTime.UtcNow);
         var json = JsonSerializer.Serialize(payload);
-        await _cache.SetStringAsync(ItemKey(key, slug, userId), json, new DistributedCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = DraftTtl
-        }, cancellationToken);
+        await _cache.SetStringAsync(ItemKey(key, slug, userId), json, Expiry, cancellationToken);
     }
 
     public async Task<CollectionDraft?> GetItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default)
@@ -39,22 +38,18 @@ public sealed class RedisCollectionDraftService : ICollectionDraftService
     public Task DeleteItemDraftAsync(string key, string slug, string userId, CancellationToken cancellationToken = default)
         => _cache.RemoveAsync(ItemKey(key, slug, userId), cancellationToken);
 
-    public async Task SaveNewDraftAsync(string key, string? locale, string userId, string? slug, Guid? translationGroupId, JsonObject data, CancellationToken cancellationToken = default)
+    public async Task SavePendingDraftAsync(string key, string? locale, string userId, PendingCollectionDraft draft, CancellationToken cancellationToken = default)
     {
-        var payload = new CollectionDraft(slug, data, DateTime.UtcNow, translationGroupId);
-        var json = JsonSerializer.Serialize(payload);
-        await _cache.SetStringAsync(NewKey(key, locale, userId), json, new DistributedCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = DraftTtl
-        }, cancellationToken);
+        var json = JsonSerializer.Serialize(draft);
+        await _cache.SetStringAsync(PendingKey(key, locale, userId), json, Expiry, cancellationToken);
     }
 
-    public async Task<CollectionDraft?> GetNewDraftAsync(string key, string? locale, string userId, CancellationToken cancellationToken = default)
+    public async Task<PendingCollectionDraft?> GetPendingDraftAsync(string key, string? locale, string userId, CancellationToken cancellationToken = default)
     {
-        var json = await _cache.GetStringAsync(NewKey(key, locale, userId), cancellationToken);
-        return json is null ? null : JsonSerializer.Deserialize<CollectionDraft>(json);
+        var json = await _cache.GetStringAsync(PendingKey(key, locale, userId), cancellationToken);
+        return json is null ? null : JsonSerializer.Deserialize<PendingCollectionDraft>(json);
     }
 
-    public Task DeleteNewDraftAsync(string key, string? locale, string userId, CancellationToken cancellationToken = default)
-        => _cache.RemoveAsync(NewKey(key, locale, userId), cancellationToken);
+    public Task DeletePendingDraftAsync(string key, string? locale, string userId, CancellationToken cancellationToken = default)
+        => _cache.RemoveAsync(PendingKey(key, locale, userId), cancellationToken);
 }

@@ -44,7 +44,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 - **Machine-to-machine service keys.** `ink_live_…` keys are hashed at rest, compared in constant time, instantly revocable, and carry their own capabilities; a deploy pipeline syncs content with a key, no login dance.
 - **Per-user drafts in Redis.** Editors autosave drafts that overlay published values in their own reads only; publishing clears the draft. Draft data never touches PostgreSQL.
 - **Schema-validated collections.** Each collection is a mounted JSON definition file: field schema, slug strategy (user-defined or auto-generated from a field), optional anonymous reads. Definitions are strictly validated: the app refuses to boot on a broken file rather than skip it. Payloads are validated and unknown fields rejected.
-- **Declarative external data.** A collection file can enrich items from external APIs at read time (URL template + response field map), with response caching and timeouts by default; an upstream outage never fails a read. Credentials are named config entries (API key or OAuth2 client credentials with self-managed tokens); secrets never appear in definition files or logs.
+- **Declarative external data.** A collection file can enrich items from external APIs at read time (URL template + response field map), with response caching and timeouts by default; an upstream outage never fails a read. Credentials are named config entries (API key or OAuth2 client credentials with self-managed tokens); secrets never appear in definition files or logs. Mapped fields are response-only: the schema advertises them among its fields, marked `readOnly` and `computed`, and writes ignore them, so read-modify-write round-trips cleanly.
 - **Optimistic concurrency everywhere.** Every entity carries a `Version`, checked both against the version the caller sent and, at the database, against the row as it was read; either kind of clash fails with **409** instead of silently overwriting another editor.
 - **CDN-friendly anonymous reads.** Opt-in public endpoints answer with `Cache-Control: public, max-age=60, stale-while-revalidate=300`; editor reads on the same collection routes are marked `private, no-store`.
 
@@ -246,11 +246,15 @@ Collections hold structured items that are not blocks on a page. Each collection
 }
 ```
 
-A definition declares a **schema** of typed fields, a **slug strategy** (user-defined or auto-generated from a field), an **anonymous-read** opt-in, and optional **read-time enrichment**: declarative `enrich` entries that fill item responses from external APIs, with caching, a 3-second timeout, and a hard guarantee that an upstream failure returns the item unenriched instead of failing the read. Credentials for enrichment (API keys, OAuth2 client credentials with self-managed tokens) are referenced **by name** and live in configuration, never in the definition file.
+A definition declares a **schema** of typed fields, a **slug strategy** (user-defined, auto-generated from a field, or derived from the caller's own claims), an **anonymous-read** opt-in, and optional **read-time enrichment**: declarative `enrich` entries that fill item responses from external APIs, with caching, a 3-second timeout, and a hard guarantee that an upstream failure returns the item unenriched instead of failing the read. Credentials for enrichment (API keys, OAuth2 client credentials with self-managed tokens) are referenced **by name** and live in configuration, never in the definition file.
+
+A **claim-derived** collection turns the caller's own claims into the slugs they own: `{ "source": "ClaimDerived", "claim": "roles", "endsWith": "_LEADER" }` lets the holder of `WEB_LEADER` write exactly `web`, and nothing else. Slugs nobody has written yet come back as **virtual items** beside the real ones, so the panel can offer them for editing before any row exists.
 
 Definitions are validated strictly at startup and a broken file **aborts boot** with an error naming the file and every violation; a misconfigured collection is never silently skipped. The full definition reference, enrichment semantics, credential types, token lifecycle, and trust model live in [docs/collections.md](docs/collections.md).
 
-Writes are validated against the schema: wrong types and unknown fields are rejected with **400** (drafts skip only the `Required` check). Updating an existing item requires `version`, like a page publish does; omitting it fails with **400** rather than overwriting whoever wrote last. Creation carries no version, since there is nothing to conflict with. Listing supports `offset`/`limit` paging (limit clamped to 100) and equality filters on `Filterable` fields via plain query parameters, e.g. `GET /cms/collections/News/?featured=true&tags=release`. `GET /cms/collections/me` tells a panel which collections the current user may create in, with their schemas, so the editor UI is fully schema-driven.
+Writes are validated against the schema: wrong types and unknown fields are rejected with **400** (drafts skip only the `Required` check). Fields produced by enrichment are the exception: the schema lists them among its fields, marked `readOnly` and `computed`, and writes **ignore** them, so a panel renders them through the paths it already has and can send a whole item back untouched. Updating an existing item requires `version`, like a page publish does; omitting it fails with **400** rather than overwriting whoever wrote last. Creation carries no version, since there is nothing to conflict with.
+
+Listing supports `offset`/`limit` paging (limit clamped to 100), `sort` over `slug`, `createdAt`, `updatedAt` or any field declared `sortable` (`?sort=publishedAt:desc`, because row age is not editorial order), and equality filters on `filterable` fields via plain query parameters, e.g. `GET /cms/collections/News/?featured=true&tags=release`. Deleting an item **archives** it: `DELETE …/{slug}?version=` hides it from every read and answers with the item's version, which archiving deliberately does not consume: the same number archives, restores and still publishes afterwards, because the content never changed. `POST …/{slug}/restore?version=` brings it back, and `?archived=true` lists the archive for editors only. An archived slug stays reserved, so a restore can never collide, and every write aimed at an archived item is refused with **409** carrying `"reason": "archived"` instead of a version conflict that would send an editor to a merge screen. `GET /cms/collections/me` tells a panel which collections the current user may create in, with their schemas, so the editor UI is fully schema-driven.
 
 ### Identity, tokens and capabilities
 
@@ -409,10 +413,12 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 |---|---|---|
 | `GET /cms/collections/me` | ContentWrite | collections the caller may create in, with schemas |
 | `GET /cms/collections/{key}/schema` | anon\* | field schema of a collection |
-| `GET /cms/collections/{key}/?offset=&limit=&locale=&field=` | anon\* | paged, filterable listing |
-| `GET /cms/collections/{key}/{slug}` | anon\* | single item (+ caller's draft when signed in) |
+| `GET /cms/collections/{key}/?offset=&limit=&locale=&sort=&archived=&field=` | anon\* | paged, sortable, filterable listing (`archived=true` is editor-only) |
+| `GET /cms/collections/{key}/{slug}` | anon\* | single item (+ caller's draft when signed in; editors also see archived items) |
 | `POST /cms/collections/{key}/?locale=&translationGroup=` | ContentWrite | create item (auto-generated slug collections) |
 | `PUT /cms/collections/{key}/{slug}?locale=&translationGroup=` | ContentWrite | upsert item (user-defined slug collections) / update |
+| `DELETE /cms/collections/{key}/{slug}?version=` | ContentWrite | archive an item (never hard-deleted; slug stays reserved; version untouched) |
+| `POST /cms/collections/{key}/{slug}/restore?version=` | ContentWrite | restore an archived item |
 | `PUT /cms/collections/{key}/{slug}/draft` | ContentWrite | save item draft |
 | `DELETE /cms/collections/{key}/{slug}/draft` | ContentWrite | discard item draft |
 | `POST /cms/collections/{key}/drafts?locale=&translationGroup=` | ContentWrite | save draft for a not-yet-created item |

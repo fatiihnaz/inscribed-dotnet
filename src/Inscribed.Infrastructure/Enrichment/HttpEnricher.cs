@@ -37,10 +37,10 @@ public sealed class HttpEnricher : ICollectionEnricher
         if (response is null)
             return data;
 
-        foreach (var (target, path) in _definition.Map)
+        foreach (var target in _definition.Targets)
         {
-            if (JsonNodePath.Select(response, path) is { } value)
-                data[target] = value.DeepClone();
+            if (JsonNodePath.Select(response, target.Path) is { } value)
+                data[target.Name] = value.DeepClone();
         }
 
         return data;

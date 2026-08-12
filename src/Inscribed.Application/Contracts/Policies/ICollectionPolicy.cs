@@ -20,6 +20,10 @@ public interface ICollectionPolicy
 
     bool CanCreate(ClaimsPrincipal user);
 
+    IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user, string? locale) => [];
+
+    bool OwnsVirtualSlug(ClaimsPrincipal user, string slug) => false;
+
     string? GetSlugSourceValue(JsonNode data);
 
     Task<JsonNode> EnrichAsync(string slug, JsonNode data, CancellationToken cancellationToken = default);

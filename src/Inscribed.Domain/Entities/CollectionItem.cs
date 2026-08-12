@@ -65,7 +65,6 @@ public sealed class CollectionItem : Entity
         ArchivedAt = utcNow;
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
-        Version += 1;
     }
 
     public void Restore(string updatedBy, DateTime utcNow)
@@ -78,6 +77,5 @@ public sealed class CollectionItem : Entity
         ArchivedAt = null;
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
-        Version += 1;
     }
 }

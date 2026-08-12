@@ -12,8 +12,12 @@ public sealed record CollectionItemResponse(
     JsonNode Data,
     int Version,
     Guid TranslationGroupId,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Locale = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<TranslationRef>? Translations = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? CanEdit = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonNode? DraftData = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonNode? DraftData = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsArchived = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTime? ArchivedAt = null
 );

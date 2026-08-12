@@ -23,7 +23,12 @@ public static class CollectionSchemaValidator
         return result;
     }
 
-    private static JsonObject ValidateObject(IReadOnlyList<FieldDefinition> fields, JsonNode? data, bool isDraft, List<string> errors, string? path)
+    private static JsonObject ValidateObject(
+        IReadOnlyList<FieldDefinition> fields,
+        JsonNode? data,
+        bool isDraft,
+        List<string> errors,
+        string? path)
     {
         var result = new JsonObject();
 
@@ -37,7 +42,7 @@ public static class CollectionSchemaValidator
 
         foreach (var field in fields)
         {
-            if (field.ReadOnly) continue;
+            if (field.ReadOnly || field.Computed) continue;
 
             var fieldPath = path is null ? field.Name : $"{path}.{field.Name}";
             var hasValue = incoming.TryGetPropertyValue(field.Name, out var value) && value is not null;
@@ -72,11 +77,11 @@ public static class CollectionSchemaValidator
 
         foreach (var prop in incoming)
         {
-            if (!fieldsByName.ContainsKey(prop.Key))
-            {
-                var unknownPath = path is null ? prop.Key : $"{path}.{prop.Key}";
-                errors.Add($"Unknown field '{unknownPath}'.");
-            }
+            if (fieldsByName.ContainsKey(prop.Key))
+                continue;
+
+            var unknownPath = path is null ? prop.Key : $"{path}.{prop.Key}";
+            errors.Add($"Unknown field '{unknownPath}'.");
         }
 
         return result;

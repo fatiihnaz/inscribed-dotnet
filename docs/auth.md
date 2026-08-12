@@ -12,7 +12,7 @@ Everything the CMS reads from an authenticated request fits in five claims. As l
 
 | Claim | Meaning | Used for |
 |---|---|---|
-| `sub` | user id, or `service:{id}` for service keys | `updatedBy`, draft ownership |
+| `sub` | user id, or `service:{id}` for service keys | the stored writer of a row, draft ownership |
 | `azp` | tenant key (`Client.Key`) | all data isolation |
 | `roles` | granted capabilities | `ContentRead` / `ContentWrite` / `SchemaSync` / `TenantAdmin` policies |
 | `name` | display name (falls back to e-mail); service keys carry the key name | panel display, `Identity.Name` |

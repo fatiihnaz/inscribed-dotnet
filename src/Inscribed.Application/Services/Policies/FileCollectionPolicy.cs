@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using System.Text.Json.Nodes;
+using Inscribed.Application.Contracts.Identity;
 using Inscribed.Application.Contracts.Policies;
 using Inscribed.Application.Contracts.Schemas;
+using Inscribed.Application.Services.Helpers;
 
 namespace Inscribed.Application.Services.Policies;
 
@@ -9,11 +11,16 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 {
     private readonly FileCollectionDefinition _definition;
     private readonly IReadOnlyList<ICollectionEnricher> _enrichers;
+    private readonly IAdministratorPolicy _administrators;
 
-    public FileCollectionPolicy(FileCollectionDefinition definition, IReadOnlyList<ICollectionEnricher> enrichers)
+    public FileCollectionPolicy(
+        FileCollectionDefinition definition,
+        IReadOnlyList<ICollectionEnricher> enrichers,
+        IAdministratorPolicy administrators)
     {
         _definition = definition;
         _enrichers = enrichers;
+        _administrators = administrators;
     }
 
     public string Key => _definition.Key;
@@ -28,9 +35,22 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public string SourceFile => _definition.SourceFile;
 
-    public bool CanEdit(ClaimsPrincipal user, string slug) => true;
+    public bool CanEdit(ClaimsPrincipal user, string slug)
+    {
+        if (_definition.ClaimSlug is not { } rule)
+            return true;
 
-    public bool CanCreate(ClaimsPrincipal user) => true;
+        return _administrators.IsAdministrator(user) || OwnsSlug(rule, user, slug);
+    }
+
+    public bool CanCreate(ClaimsPrincipal user)
+        => _definition.ClaimSlug is null || _administrators.IsAdministrator(user);
+
+    public IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user, string? locale)
+        => _definition.ClaimSlug is { } rule ? ClaimSlugDeriver.Derive(rule, user, locale) : [];
+
+    public bool OwnsVirtualSlug(ClaimsPrincipal user, string slug)
+        => _definition.ClaimSlug is { } rule && OwnsSlug(rule, user, slug);
 
     public string? GetSlugSourceValue(JsonNode data)
         => _definition.SlugSourceField is { } field && data[field] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
@@ -46,5 +66,23 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
             enriched = await enricher.EnrichAsync(slug, enriched, cancellationToken);
 
         return enriched;
+    }
+
+    private bool OwnsSlug(ClaimSlugRule rule, ClaimsPrincipal user, string slug)
+    {
+        var derived = ClaimSlugDeriver.Derive(rule, user, locale: null);
+
+        if (derived.Contains(slug))
+            return true;
+
+        foreach (var locale in _definition.Locales)
+        {
+            var suffix = $"-{locale}";
+
+            if (slug.EndsWith(suffix, StringComparison.Ordinal) && derived.Contains(slug[..^suffix.Length]))
+                return true;
+        }
+
+        return false;
     }
 }

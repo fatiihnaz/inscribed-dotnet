@@ -8,6 +8,7 @@ public sealed record FileCollectionDefinition(
     CollectionSchema Schema,
     SlugSource SlugSource,
     string? SlugSourceField,
+    ClaimSlugRule? ClaimSlug,
     bool AllowAnonymousRead,
     IReadOnlyList<string> Locales,
     string SourceFile,
