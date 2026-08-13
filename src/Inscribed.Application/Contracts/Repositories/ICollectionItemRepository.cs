@@ -25,6 +25,8 @@ public interface ICollectionItemRepository
 
     Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupAsync(string key, Guid translationGroupId, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupsAsync(string key, IReadOnlyCollection<Guid> translationGroupIds, CancellationToken cancellationToken = default);
+
     Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

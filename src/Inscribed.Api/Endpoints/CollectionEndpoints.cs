@@ -91,7 +91,7 @@ public static class CollectionEndpoints
             return Results.NoContent();
         });
 
-        group.MapGet("/{slug}", async (string key, string slug, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
+        group.MapGet("/{slug}", async (string key, string slug, string? locale, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
             var isPublic = service.AllowsAnonymousRead(key);
             var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
@@ -101,7 +101,7 @@ public static class CollectionEndpoints
             var userId = isEditor ? context.User.GetUserSub() ?? string.Empty : string.Empty;
             ApplyReadCacheHeaders(context, isEditor, isPublic);
 
-            var item = await service.GetAsync(key, slug, context.User, userId, ct);
+            var item = await service.GetAsync(key, slug, locale, context.User, userId, ct);
             if (item is not null)
                 return Results.Ok(item);
 

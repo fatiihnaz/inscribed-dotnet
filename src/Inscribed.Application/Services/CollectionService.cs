@@ -31,8 +31,16 @@ public sealed class CollectionService : ICollectionService
         _drafts = drafts;
     }
 
-    public CollectionSchema GetSchema(string key)
-        => _policyResolver.Resolve(key).Schema;
+    public CollectionSchemaResponse GetSchema(string key)
+    {
+        var policy = _policyResolver.Resolve(key);
+
+        return new CollectionSchemaResponse(
+            CollectionKey: policy.Key,
+            Schema: policy.Schema,
+            SlugSource: policy.SlugSource.ToString(),
+            Locales: policy.Locales);
+    }
 
     public bool AllowsAnonymousRead(string key)
         => _policyResolver.Resolve(key).AllowAnonymousRead;
@@ -91,20 +99,23 @@ public sealed class CollectionService : ICollectionService
             ? []
             : await Task.WhenAll(items.Select(item => _drafts.GetItemDraftAsync(key, item.Slug, userId, cancellationToken)));
 
+        var groups = await LoadTranslationGroupsAsync(key, items, policy.Locales, cancellationToken);
+
         var responses = new List<CollectionItemResponse>(items.Count);
 
         for (var index = 0; index < items.Count; index++)
         {
             var item = items[index];
+            var translations = groups is null ? null : ToTranslationRefs(groups[item.TranslationGroupId], item.Id);
 
             if (publishedOnly)
             {
-                responses.Add(ToResponse(item, enriched[index], canEdit: null));
+                responses.Add(ToResponse(item, enriched[index], canEdit: null, translations: translations));
                 continue;
             }
 
             var draftData = ResolveItemDraft(item.Data, drafts[index]?.Data);
-            responses.Add(ToResponse(item, enriched[index], policy.CanEdit(user, item.Slug), draftData));
+            responses.Add(ToResponse(item, enriched[index], policy.CanEdit(user, item.Slug), draftData, translations));
         }
 
         var virtualItems = publishedOnly || archived
@@ -114,7 +125,7 @@ public sealed class CollectionService : ICollectionService
         return new CollectionListResponse(responses, total, offset, limit, virtualItems);
     }
 
-    public async Task<CollectionItemResponse?> GetAsync(string key, string slug, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default)
+    public async Task<CollectionItemResponse?> GetAsync(string key, string slug, string? requestedLocale, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
         var policy = _policyResolver.Resolve(key);
@@ -122,6 +133,9 @@ public sealed class CollectionService : ICollectionService
 
         var isEditor = !string.IsNullOrWhiteSpace(userId);
         var item = await _repository.GetBySlugAsync(key, normalizedSlug, includeArchived: isEditor, cancellationToken);
+        if (item is null) return null;
+
+        item = await ResolveLocaleSiblingAsync(policy, item, requestedLocale, cancellationToken);
         if (item is null) return null;
 
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
@@ -171,6 +185,7 @@ public sealed class CollectionService : ICollectionService
 
         var utcNow = DateTime.UtcNow;
         var item = await FindWritableAsync(key, normalizedSlug, required: false, cancellationToken);
+        var created = false;
         string? createdLocale = null;
 
         if (item is null)
@@ -188,6 +203,7 @@ public sealed class CollectionService : ICollectionService
 
             item = CollectionItem.Create(key, locale, normalizedSlug, validated, updatedBy, utcNow, group);
             await _repository.AddAsync(item, cancellationToken);
+            created = true;
             createdLocale = locale;
         }
         else
@@ -199,11 +215,12 @@ public sealed class CollectionService : ICollectionService
         await _repository.SaveChangesAsync(cancellationToken);
         await _drafts.DeleteItemDraftAsync(key, normalizedSlug, updatedBy, cancellationToken);
 
-        if (createdLocale is not null)
+        if (created)
             await _drafts.DeletePendingDraftAsync(key, createdLocale, updatedBy, cancellationToken);
 
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
-        return ToResponse(item, enriched, canEdit: true);
+        var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
+        return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
 
     public async Task<CollectionItemResponse> CreateAutoSlugAsync(string key, string? requestedLocale, Guid? translationGroup, CreateCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default)
@@ -414,6 +431,25 @@ public sealed class CollectionService : ICollectionService
             .FirstOrDefault();
     }
 
+    private async Task<CollectionItem?> ResolveLocaleSiblingAsync(
+        ICollectionPolicy policy,
+        CollectionItem item,
+        string? requestedLocale,
+        CancellationToken cancellationToken)
+    {
+        if (policy.Locales.Count == 0 || string.IsNullOrWhiteSpace(requestedLocale))
+            return item;
+
+        var locale = LocaleResolver.Normalize(requestedLocale);
+
+        if (string.Equals(item.Locale, locale, StringComparison.Ordinal))
+            return item;
+
+        var siblings = await _repository.GetByTranslationGroupAsync(policy.Key, item.TranslationGroupId, cancellationToken);
+
+        return siblings.FirstOrDefault(sibling => string.Equals(sibling.Locale, locale, StringComparison.Ordinal));
+    }
+
     private async Task<IReadOnlyList<TranslationRef>?> LoadTranslationsAsync(string key, CollectionItem item, IReadOnlyList<string> locales, CancellationToken cancellationToken)
     {
         if (locales.Count == 0)
@@ -421,13 +457,29 @@ public sealed class CollectionService : ICollectionService
 
         var siblings = await _repository.GetByTranslationGroupAsync(key, item.TranslationGroupId, cancellationToken);
 
-        var translations = siblings
-            .Where(sibling => sibling.Id != item.Id)
+        return ToTranslationRefs(siblings, item.Id);
+    }
+
+    private async Task<ILookup<Guid, CollectionItem>?> LoadTranslationGroupsAsync(
+        string key,
+        IReadOnlyList<CollectionItem> items,
+        IReadOnlyList<string> locales,
+        CancellationToken cancellationToken)
+    {
+        if (locales.Count == 0 || items.Count == 0)
+            return null;
+
+        var groupIds = items.Select(item => item.TranslationGroupId).Distinct().ToList();
+        var siblings = await _repository.GetByTranslationGroupsAsync(key, groupIds, cancellationToken);
+
+        return siblings.ToLookup(sibling => sibling.TranslationGroupId);
+    }
+
+    private static List<TranslationRef> ToTranslationRefs(IEnumerable<CollectionItem> siblings, Guid selfId) =>
+        siblings
+            .Where(sibling => sibling.Id != selfId)
             .Select(sibling => new TranslationRef(sibling.Locale, sibling.Slug))
             .ToList();
-
-        return translations;
-    }
 
     private static void RequireVersion(string key, string slug, int? version, int current)
     {

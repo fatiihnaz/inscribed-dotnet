@@ -98,6 +98,17 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupsAsync(string key, IReadOnlyCollection<Guid> translationGroupIds, CancellationToken cancellationToken = default)
+    {
+        if (translationGroupIds.Count == 0)
+            return [];
+
+        return await _context.CollectionItems
+            .Where(x => x.CollectionKey == key && translationGroupIds.Contains(x.TranslationGroupId))
+            .OrderBy(x => x.Slug)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default)
     {
         return _context.CollectionItems.AddAsync(item, cancellationToken).AsTask();

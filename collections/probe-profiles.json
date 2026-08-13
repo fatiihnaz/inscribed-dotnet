@@ -1,0 +1,23 @@
+{
+  "key": "probe-profiles",
+  "allowAnonymousRead": false,
+  "locales": ["tr", "en"],
+  "slug": { "source": "ClaimDerived", "claim": "email", "pattern": "^([^@]+)@" },
+  "fields": [
+    { "name": "displayName", "type": "ShortText", "label": "Görünen ad", "required": true, "sortable": true },
+    { "name": "role", "type": "ShortText", "label": "Ünvan", "options": ["üye", "yönetim", "danışman"], "filterable": true },
+    { "name": "joinedAt", "type": "Date", "label": "Katılım tarihi", "sortable": true },
+    { "name": "bio", "type": "LongText", "label": "Biyografi" },
+    { "name": "avatar", "type": "Image", "label": "Profil görseli" },
+    { "name": "skills", "type": "StringArray", "label": "Yetkinlikler" },
+    {
+      "name": "links",
+      "type": "ObjectArray",
+      "label": "Bağlantılar",
+      "itemFields": [
+        { "name": "label", "type": "ShortText", "label": "Etiket", "required": true },
+        { "name": "url", "type": "Url", "label": "Adres", "required": true }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,8 @@ namespace Inscribed.Application.Services.Helpers;
 
 public static class LocaleResolver
 {
+    public static string Normalize(string requested) => requested.Trim().ToLower(CultureInfo.InvariantCulture);
+
     public static string? Resolve(IReadOnlyList<string> locales, string? requested, bool forWrite)
     {
         if (locales.Count == 0)
@@ -17,10 +19,13 @@ public static class LocaleResolver
 
         if (string.IsNullOrWhiteSpace(requested))
         {
+            if (forWrite)
+                throw new ValidationException([$"Locale is required for writes here. Available: {string.Join(", ", locales)}."]);
+
             return locales[0];
         }
 
-        var normalized = requested.Trim().ToLower(CultureInfo.InvariantCulture);
+        var normalized = Normalize(requested);
 
         foreach (var locale in locales)
         {
