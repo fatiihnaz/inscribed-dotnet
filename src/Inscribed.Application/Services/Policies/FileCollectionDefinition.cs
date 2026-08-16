@@ -11,6 +11,6 @@ public sealed record FileCollectionDefinition(
     ClaimSlugRule? ClaimSlug,
     bool AllowAnonymousRead,
     IReadOnlyList<string> Locales,
-    string SourceFile,
+    string Source,
     IReadOnlyList<EnrichmentDefinition> Enrichments
 );

@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Inscribed.Application.Contracts.Identity;
 using Inscribed.Application.Contracts.Policies;
 using Inscribed.Application.Services;
 using Inscribed.Application.Services.Policies;
@@ -24,27 +23,19 @@ public static class DependencyInjection
         services.AddScoped<ICollectionService, CollectionService>();
 
         var credentialNames = configuration.GetSection("Enrichment:Auth").GetChildren()
-            .Select(c => c.Key)
+            .Select(section => section.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var configuredPath = configuration["Collections:Path"];
-        var definitions = FileCollectionPolicyLoader.Load(configuredPath ?? DefaultCollectionsPath, required: configuredPath is not null, credentialNames);
 
-        foreach (var definition in definitions)
-        {
-            services.AddSingleton<ICollectionPolicy>(sp =>
-            {
-                var administrators = sp.GetRequiredService<IAdministratorPolicy>();
+        services.AddSingleton(new EnrichmentCredentialNames(credentialNames));
+        services.AddSingleton(new CollectionsPath(configuredPath ?? DefaultCollectionsPath, Required: configuredPath is not null));
 
-                if (definition.Enrichments.Count == 0)
-                    return new FileCollectionPolicy(definition, [], administrators);
+        services.AddScoped<ICollectionDefinitionAdminService, CollectionDefinitionAdminService>();
+        services.AddScoped<CollectionSeeder>();
 
-                var factory = sp.GetRequiredService<ICollectionEnricherFactory>();
-                return new FileCollectionPolicy(definition, definition.Enrichments.Select(factory.Create).ToArray(), administrators);
-            });
-        }
-
-        services.AddSingleton<ICollectionPolicyResolver, CollectionPolicyResolver>();
+        services.AddSingleton<CollectionPolicyRegistry>();
+        services.AddSingleton<ICollectionPolicyResolver>(sp => sp.GetRequiredService<CollectionPolicyRegistry>());
 
         return services;
     }

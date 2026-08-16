@@ -18,6 +18,7 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         var (statusCode, title, detail) = exception switch
         {
             NotFoundException => (StatusCodes.Status404NotFound, "Not Found", exception.Message),
+            MisconfiguredCollectionException => (StatusCodes.Status500InternalServerError, "Collection Misconfigured", exception.Message),
             ArchivedException => (StatusCodes.Status409Conflict, "Conflict", exception.Message),
             ConcurrencyConflictException => (StatusCodes.Status409Conflict, "Conflict", exception.Message),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict", exception.Message),
@@ -50,6 +51,9 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
 
         if (exception is ValidationException { Errors.Count: > 0 } validation)
             problem.Extensions["errors"] = validation.Errors;
+
+        if (exception is MisconfiguredCollectionException misconfigured)
+            problem.Extensions["errors"] = misconfigured.Errors;
 
         httpContext.Response.StatusCode = statusCode;
         await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);

@@ -16,6 +16,8 @@ public sealed class CmsDbContext : DbContext
 
     public DbSet<CollectionItem> CollectionItems => Set<CollectionItem>();
 
+    public DbSet<CollectionDefinition> CollectionDefinitions => Set<CollectionDefinition>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("pgcrypto");

@@ -33,7 +33,7 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public IReadOnlyList<string> Locales => _definition.Locales;
 
-    public string SourceFile => _definition.SourceFile;
+    public string Source => _definition.Source;
 
     public bool CanEdit(ClaimsPrincipal user, string slug)
     {

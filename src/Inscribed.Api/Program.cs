@@ -78,9 +78,11 @@ using (var scope = app.Services.CreateScope())
 
     scope.ServiceProvider.ValidateInscribedTokenIssuance();
     scope.ServiceProvider.GetRequiredService<ISigningKeyStore>().GetPublicJwks();
-    scope.ServiceProvider.GetRequiredService<ICollectionPolicyResolver>();
     scope.ServiceProvider.SeedInscribedAuth();
     scope.ServiceProvider.SeedInscribedClients();
+
+    await scope.ServiceProvider.GetRequiredService<CollectionSeeder>().SeedAsync();
+    await app.Services.GetRequiredService<CollectionPolicyRegistry>().LoadAsync();
 }
 
 app.UseExceptionHandler();
@@ -89,6 +91,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapCmsEndpoints();
 app.MapCollectionEndpoints();
+app.MapCollectionDefinitionEndpoints();
 app.MapClientEndpoints();
 app.MapInscribedAuthEndpoints();
 

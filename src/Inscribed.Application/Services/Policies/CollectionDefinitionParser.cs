@@ -7,7 +7,12 @@ using Inscribed.Application.Contracts.Schemas;
 
 namespace Inscribed.Application.Services.Policies;
 
-public static class FileCollectionPolicyLoader
+public sealed record CollectionDefinitionParseResult(FileCollectionDefinition? Definition, IReadOnlyList<string> Errors)
+{
+    public bool Succeeded => Definition is not null;
+}
+
+public static class CollectionDefinitionParser
 {
     private const int DefaultCacheSeconds = 300;
     private const int MaxCacheSeconds = 86_400;
@@ -33,68 +38,63 @@ public static class FileCollectionPolicyLoader
         AllowTrailingCommas = true,
     };
 
-    public static IReadOnlyList<FileCollectionDefinition> Load(string directory, bool required, IReadOnlyCollection<string> credentialNames)
+    private static readonly JsonDocumentOptions DocumentOptions = new()
     {
-        if (!Directory.Exists(directory))
-        {
-            if (required)
-                throw new InvalidOperationException($"Collections path '{directory}' does not exist.");
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+    };
 
-            return [];
+    public static JsonNode? ReadDocument(string json, out string? error)
+    {
+        try
+        {
+            var node = JsonNode.Parse(json, documentOptions: DocumentOptions);
+
+            if (node is null)
+            {
+                error = "definition is empty";
+                return null;
+            }
+
+            error = null;
+            return node;
         }
+        catch (JsonException exception)
+        {
+            error = $"invalid JSON: {exception.Message}";
+            return null;
+        }
+    }
+
+    public static CollectionDefinitionParseResult Parse(JsonNode document, string source, IReadOnlyCollection<string> credentialNames)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        CollectionDefinitionDocument? parsed;
+
+        try
+        {
+            parsed = document.Deserialize<CollectionDefinitionDocument>(SerializerOptions);
+        }
+        catch (JsonException exception)
+        {
+            return new CollectionDefinitionParseResult(null, [$"invalid JSON: {exception.Message}"]);
+        }
+
+        if (parsed is null)
+            return new CollectionDefinitionParseResult(null, ["definition is empty"]);
 
         var errors = new List<string>();
-        var definitions = new List<FileCollectionDefinition>();
-        var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var definition = BuildDefinition(parsed, source, credentialNames, errors);
 
-        foreach (var file in Directory.GetFiles(directory, "*.json").OrderBy(Path.GetFileName, StringComparer.Ordinal))
-        {
-            var fileName = Path.GetFileName(file);
-
-            CollectionDefinitionDocument? document;
-            try
-            {
-                document = JsonSerializer.Deserialize<CollectionDefinitionDocument>(File.ReadAllText(file), SerializerOptions);
-            }
-            catch (JsonException ex)
-            {
-                errors.Add($"{fileName}: invalid JSON: {ex.Message}");
-                continue;
-            }
-
-            if (document is null)
-            {
-                errors.Add($"{fileName}: definition is empty");
-                continue;
-            }
-
-            var fileErrors = new List<string>();
-            var definition = BuildDefinition(document, fileName, credentialNames, fileErrors);
-
-            if (definition is not null && sources.TryGetValue(definition.Key, out var otherFile))
-                fileErrors.Add($"duplicate collection key '{definition.Key}', already defined in '{otherFile}'");
-
-            if (fileErrors.Count > 0)
-            {
-                errors.AddRange(fileErrors.Select(e => $"{fileName}: {e}"));
-                continue;
-            }
-
-            sources.Add(definition!.Key, fileName);
-            definitions.Add(definition);
-        }
-
-        if (errors.Count > 0)
-            throw new InvalidOperationException(
-                $"Invalid collection definition(s) in '{directory}':{Environment.NewLine}" +
-                string.Join(Environment.NewLine, errors.Select(e => $"  - {e}")));
-
-        return definitions;
+        return errors.Count > 0 || definition is null
+            ? new CollectionDefinitionParseResult(null, errors)
+            : new CollectionDefinitionParseResult(definition, []);
     }
 
     private static FileCollectionDefinition? BuildDefinition(
         CollectionDefinitionDocument document,
-        string fileName,
+        string source,
         IReadOnlyCollection<string> credentialNames,
         List<string> errors)
     {
@@ -137,14 +137,14 @@ public static class FileCollectionPolicyLoader
                 }
                 else if (fields is not null)
                 {
-                    var source = fields.FirstOrDefault(f => string.Equals(f.Name, slug.From, StringComparison.OrdinalIgnoreCase));
+                    var sourceField = fields.FirstOrDefault(f => string.Equals(f.Name, slug.From, StringComparison.OrdinalIgnoreCase));
 
-                    if (source is null)
+                    if (sourceField is null)
                         errors.Add($"'slug.from' references unknown field '{slug.From}'");
-                    else if (source.Type is not FieldType.ShortText)
-                        errors.Add($"'slug.from' field '{slug.From}' must be of type ShortText, not {source.Type}");
+                    else if (sourceField.Type is not FieldType.ShortText)
+                        errors.Add($"'slug.from' field '{slug.From}' must be of type ShortText, not {sourceField.Type}");
                     else
-                        slugSourceField = source.Name;
+                        slugSourceField = sourceField.Name;
                 }
             }
             else if (slug.From is not null)
@@ -166,7 +166,7 @@ public static class FileCollectionPolicyLoader
             claimSlug,
             document.AllowAnonymousRead,
             locales,
-            fileName,
+            source,
             enrichments);
     }
 
