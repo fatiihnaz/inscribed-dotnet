@@ -109,6 +109,21 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<int> CountAsync(string key, CancellationToken cancellationToken = default)
+    {
+        return _context.CollectionItems
+            .IgnoreQueryFilters()
+            .CountAsync(x => x.CollectionKey == key, cancellationToken);
+    }
+
+    public Task<int> AssignMissingLocaleAsync(string key, string locale, CancellationToken cancellationToken = default)
+    {
+        return _context.CollectionItems
+            .IgnoreQueryFilters()
+            .Where(x => x.CollectionKey == key && x.Locale == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Locale, locale), cancellationToken);
+    }
+
     public Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default)
     {
         return _context.CollectionItems.AddAsync(item, cancellationToken).AsTask();

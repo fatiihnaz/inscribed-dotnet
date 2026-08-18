@@ -27,6 +27,10 @@ public interface ICollectionItemRepository
 
     Task<IReadOnlyList<CollectionItem>> GetByTranslationGroupsAsync(string key, IReadOnlyCollection<Guid> translationGroupIds, CancellationToken cancellationToken = default);
 
+    Task<int> CountAsync(string key, CancellationToken cancellationToken = default);
+
+    Task<int> AssignMissingLocaleAsync(string key, string locale, CancellationToken cancellationToken = default);
+
     Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

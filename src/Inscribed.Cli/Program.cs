@@ -39,7 +39,7 @@ static async Task<int> RunAsync(string[] args)
     builder.Logging.ClearProviders();
     builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions()));
     builder.Services.AddInfrastructureStorage(builder.Configuration);
-    builder.Services.AddClientManagement();
+    builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddInscribedAuth(builder.Configuration);
 
     using var host = builder.Build();

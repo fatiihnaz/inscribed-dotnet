@@ -4,11 +4,40 @@ How collections are defined, validated, and enriched with external data, and why
 
 ## Overview
 
-A collection holds structured items that are not blocks on a page: news, projects, listings. Each collection is one **JSON definition file** in the collections directory (`Collections:Path`, default `collections/` relative to the working directory; the compose file mounts `./collections` to `/app/collections`). At startup the API reads every `*.json` file there and registers each as a collection; items of all collections share one table, so a new collection needs **no code and no migration**.
+A collection holds structured items that are not blocks on a page: news, projects, listings. Each collection is one **JSON definition document**, stored in the `collection_definitions` table as `jsonb` exactly as it was written. Items of all collections share one table, so a new collection needs **no code and no migration**.
 
-There is no hot reload: adding or changing a collection is a file edit plus a restart. This is deliberate. Definitions change rarely, and a restart boundary is what makes fail-fast validation possible; a definition that changed shape mid-flight would leave the editor panel and the API disagreeing about the schema.
+### Where definitions live
 
-If the configured `Collections:Path` does not exist, startup fails (a configured path that is missing is almost always a typo). The **default** path missing is not an error; the API starts with zero collections, which keeps local development working without a mount.
+The database is the source of truth. Files are how definitions get there the first time:
+
+- On boot, if `collection_definitions` is **empty** and the collections directory has `*.json` files, each one is validated and imported. A broken file at this point aborts startup, because nothing has been stored yet and the operator is standing right there.
+- On every later boot the directory is **ignored**, and a warning names how many files were skipped. Editing `collections/news.json` after the first boot changes nothing until it is imported.
+- `Collections:Path` defaults to `collections/` relative to the working directory; the compose file mounts `./collections` to `/app/collections`. A configured path that does not exist aborts startup only while seeding is still possible; the **default** path missing is never an error.
+
+Getting a definition in or out afterwards is a CLI job, and `collection export` is what puts one back into a file so it can live in git:
+
+```
+collection list
+collection show      --key <key>
+collection validate  --file <path>
+collection import    --file <path> | --dir <path> [--force] [--assign-locale <code>]
+collection export    --key <key> [--out <path>]
+collection delete    --key <key> [--force]
+```
+
+`import` reports what the change does to stored data before it does it: fields added, dropped or retyped, a changed `slug.source`, and how many items are stored under the key. A change that drops or retypes a field is refused while items exist unless `--force` says otherwise, because those items keep values the new schema no longer accepts. `delete` removes the definition only; the items stay in the table and become unreachable, which is why it too asks for `--force`.
+
+Two locale changes get their own warning because they are quiet rather than loud. Adding `locales` to a collection that had none leaves every stored item with no locale, so locale-filtered reads stop returning them; `--assign-locale <code>` backfills them in the same command. Removing `locales` merges what were separate languages into one list.
+
+### Loading and reload
+
+A running instance serves an immutable snapshot built at boot. `POST /admin/collections/reload` (tenant admin) rebuilds it from the table and swaps it in; requests already in flight finish against the snapshot they started with. Rebuilding also recreates the enrichment clients, so response caches start cold.
+
+**A stored definition that fails to parse does not take the process down.** Every valid definition keeps being served, the invalid one is logged with its full error list, and it is remembered as broken rather than forgotten: reading it answers **500** naming what is wrong, instead of the **404** that would make an operator think it had been deleted. Boot and reload behave identically here, so a definition can never work in memory and fail on the next restart. Reload answers **400** listing the failing keys when part of the load did not succeed, with everything else already swapped in.
+
+This is the trade that moving definitions into the database forces. When they lived in files, a bad definition failed the deploy, which is where someone was watching; a bad row would instead take the app down at whatever unrelated restart came next, so it must not be fatal. The defence moved to the write side: `import` parses before it stores and refuses to write anything that does not parse, and it is the only path that writes.
+
+> **Multi-instance:** reload is per process. Each instance has to be told, and until it is, instances disagree about the schema. A panel that reads the schema from one instance and writes to another can be rejected for a field the writer has not heard of yet.
 
 ## Definition file reference
 
@@ -402,7 +431,7 @@ Log lines and error messages carry the credential **name** and a status code, ne
 
 ## Code seams
 
-All collections are file-defined, but two interfaces remain as the seams for behavior a file cannot express:
+All collections are defined by a document, but two interfaces remain as the seams for behavior a document cannot express:
 
 ```csharp
 public interface ICollectionPolicy
@@ -431,8 +460,10 @@ public interface ICollectionEnricher
 
 | Symptom | Cause |
 |---|---|
-| App will not start, `Invalid collection definition(s) in '…'` | one or more files failed validation; every error names its file, fix all listed |
-| App will not start, `Collections path '…' does not exist` | an explicitly configured `Collections:Path` points at a missing directory |
-| App starts but a collection is missing | with the **default** path absent, loading is skipped entirely; check the working directory |
+| App will not start, `Invalid collection definition(s) in '…'` | seeding is still pending and one or more files failed validation; every error names its file, fix all listed |
+| App will not start, `Collections path '…' does not exist` | an explicitly configured `Collections:Path` points at a missing directory, while the table is still empty |
+| A collection answers **500** with `Collection Misconfigured` | its stored definition does not parse; the boot log and `collection show --key` both list the errors, fix it and import again |
+| Editing a definition file changes nothing | the table is already seeded, so files are ignored; use `collection import --file` |
+| A collection is missing right after startup | on a fresh database with no definition files, nothing was seeded; import one |
 | Items load but enrichment fields are absent | check logs for `Enrichment request to … returned/failed` warnings; an empty placeholder field on the item also skips the request, silently |
 | Every read is slow for one collection | enrichment cache is likely disabled (`cacheSeconds: 0`) or the map targets vary per item; check upstream latency |

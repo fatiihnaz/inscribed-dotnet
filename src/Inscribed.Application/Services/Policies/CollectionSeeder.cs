@@ -48,7 +48,7 @@ public sealed class CollectionSeeder
             return;
 
         foreach (var file in files)
-            await _definitions.ImportAsync(file.Document, file.FileName, SeedAuthor, cancellationToken);
+            await _definitions.ImportAsync(file.Document, file.FileName, SeedAuthor, cancellationToken: cancellationToken);
 
         _logger.LogInformation("Seeded {Count} collection definition(s) from '{Directory}'.", files.Count, _path.Directory);
     }

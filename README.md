@@ -8,7 +8,7 @@
 
 **Inscribed is a self-hosted, multi-tenant headless CMS backend for teams whose frontend repository is the source of truth for content structure.**
 
-Instead of modelling pages in an admin UI, your deploy pipeline pushes a **manifest** of every editable block on every page to `POST /cms/sync`; the backend reconciles its database against that manifest as a whole (creates, archives, restores), and editors then fill in the values through a panel of your choice. Structured content that is not tied to a page (news, announcements, listings) lives in **collections**, whose schemas are defined in mounted JSON files.
+Instead of modelling pages in an admin UI, your deploy pipeline pushes a **manifest** of every editable block on every page to `POST /cms/sync`; the backend reconciles its database against that manifest as a whole (creates, archives, restores), and editors then fill in the values through a panel of your choice. Structured content that is not tied to a page (news, announcements, listings) lives in **collections**, whose schemas are JSON definition documents seeded from mounted files and then managed in the database.
 
 The API ships with its own identity provider: Google sign-in for humans, opaque **service keys** for machines, and self-issued **RS256 JWTs** whose public keys are published as standard JWKS. Everything the CMS knows about identity fits in a four-claim contract, so the auth module can be replaced without touching content code (see [Architecture](#architecture)). Public sites can opt in to fully anonymous, CDN-cacheable reads and skip tokens entirely.
 
@@ -43,7 +43,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 - **Refresh token rotation with reuse detection.** Refresh tokens are opaque, hashed at rest, rotated on every use, and family-revoked on suspected theft, with a configurable leeway window that tolerates network-retry races instead of logging the user out.
 - **Machine-to-machine service keys.** `ink_live_…` keys are hashed at rest, compared in constant time, instantly revocable, and carry their own capabilities; a deploy pipeline syncs content with a key, no login dance.
 - **Per-user drafts in Redis.** Editors autosave drafts that overlay published values in their own reads only; publishing clears the draft. Draft data never touches PostgreSQL.
-- **Schema-validated collections.** Each collection is a mounted JSON definition file: field schema, slug strategy (user-defined or auto-generated from a field), optional anonymous reads. Definitions are strictly validated: the app refuses to boot on a broken file rather than skip it. Payloads are validated and unknown fields rejected.
+- **Schema-validated collections.** Each collection is a JSON definition document stored in the database: field schema, slug strategy (user-defined, auto-generated from a field, or derived from the caller's claims), optional anonymous reads. Definition files seed an empty database once; after that the CLI imports and exports them, reporting what a change does to stored items before it applies. Payloads are validated and unknown fields rejected.
 - **Declarative external data.** A collection file can enrich items from external APIs at read time (URL template + response field map), with response caching and timeouts by default; an upstream outage never fails a read. Credentials are named config entries (API key or OAuth2 client credentials with self-managed tokens); secrets never appear in definition files or logs. Mapped fields are response-only: the schema advertises them among its fields, marked `readOnly` and `computed`, and writes ignore them, so read-modify-write round-trips cleanly.
 - **Optimistic concurrency everywhere.** Every entity carries a `Version`, checked both against the version the caller sent and, at the database, against the row as it was read; either kind of clash fails with **409** instead of silently overwriting another editor.
 - **CDN-friendly anonymous reads.** Opt-in public endpoints answer with `Cache-Control: public, max-age=60, stale-while-revalidate=300`; editor reads on the same collection routes are marked `private, no-store`.
@@ -224,7 +224,7 @@ Drafts are **per user, per page (or per collection item), stored in Redis**, and
 
 ### Collections
 
-Collections hold structured items that are not blocks on a page. Each collection is a **JSON definition file**: at startup the API reads every `*.json` file in `Collections:Path` (default `collections/`, mounted from `./collections` in the compose file) and registers it. Adding a collection is a new file plus a restart; **no code, no migration**. The repository ships [collections/news.json](collections/news.json) as a working example:
+Collections hold structured items that are not blocks on a page. Each collection is a **JSON definition document** kept in the database. On a fresh database the API seeds it from every `*.json` file in `Collections:Path` (default `collections/`, mounted from `./collections` in the compose file); after that, definitions are managed with the admin CLI (`collection import`, `collection export`) and picked up by `POST /admin/collections/reload` or a restart. Either way, adding a collection needs **no code and no migration**. The repository ships [collections/news.json](collections/news.json) as a working example:
 
 ```json
 {
@@ -386,7 +386,7 @@ Extension points, in the order you are likely to need them:
 
 | Seam | Contract | Default | What it abstracts |
 |---|---|---|---|
-| Collection definition | `ICollectionPolicy` ([src](src/Inscribed.Application/Contracts/Policies/ICollectionPolicy.cs)) | `FileCollectionPolicy` loaded from mounted JSON files | schema, slug strategy, permissions, enrichment per collection |
+| Collection definition | `ICollectionPolicy` ([src](src/Inscribed.Application/Contracts/Policies/ICollectionPolicy.cs)) | `FileCollectionPolicy` built from a stored definition document | schema, slug strategy, permissions, enrichment per collection |
 | Collection enrichment | `ICollectionEnricher`, `ICollectionEnricherFactory` ([src](src/Inscribed.Application/Contracts/Policies/ICollectionEnricher.cs)) | `HttpEnricher` (declarative URL + map) | read-time augmentation from external APIs |
 | Draft storage | `IDraftService`, `ICollectionDraftService` | Redis implementations | where autosaved drafts live |
 | Content persistence | `IContentBlockRepository`, `ICollectionItemRepository` | EF Core + PostgreSQL | storage engine for published content |

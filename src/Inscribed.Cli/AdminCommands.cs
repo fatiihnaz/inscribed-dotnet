@@ -10,7 +10,7 @@ namespace Inscribed.Cli;
 
 internal sealed record CommandSpec(string Name, string Section, string Arguments, string[] Options);
 
-internal static class AdminCommands
+internal static partial class AdminCommands
 {
     private const int MaxKeyLength = 64;
 
@@ -41,6 +41,12 @@ internal static class AdminCommands
         new("service-key create", "KEYS", "--client <key> --name <name> --capabilities <a,b> [--expires <date>]", ["--client", "--name", "--capabilities", "--expires"]),
         new("service-key revoke", "KEYS", "--client <key> --id <id or prefix>", ["--client", "--id"]),
         new("signing-key rotate", "KEYS", "", []),
+        new("collection list", "COLLECTIONS", "", []),
+        new("collection show", "COLLECTIONS", "--key <key>", ["--key"]),
+        new("collection validate", "COLLECTIONS", "--file <path>", ["--file"]),
+        new("collection import", "COLLECTIONS", "--file <path> | --dir <path> [--force] [--assign-locale <code>]", ["--file", "--dir", "--force", "--assign-locale"]),
+        new("collection export", "COLLECTIONS", "--key <key> [--out <path>]", ["--key", "--out"]),
+        new("collection delete", "COLLECTIONS", "--key <key> [--force]", ["--key", "--force"]),
         new("status", "SESSION", "", []),
     ];
 
@@ -143,6 +149,24 @@ internal static class AdminCommands
                 return;
             case ("signing-key", "rotate"):
                 RotateSigningKey(admin, interaction);
+                return;
+            case ("collection", "list"):
+                await ListCollectionsAsync(Definitions(services));
+                return;
+            case ("collection", "show"):
+                await ShowCollectionAsync(Definitions(services), options);
+                return;
+            case ("collection", "validate"):
+                ValidateCollection(Definitions(services), options);
+                return;
+            case ("collection", "import"):
+                await ImportCollectionsAsync(Definitions(services), options);
+                return;
+            case ("collection", "export"):
+                await ExportCollectionAsync(Definitions(services), options);
+                return;
+            case ("collection", "delete"):
+                await DeleteCollectionAsync(Definitions(services), options, interaction);
                 return;
             default:
                 throw new UsageException(Unknown(group, action));
