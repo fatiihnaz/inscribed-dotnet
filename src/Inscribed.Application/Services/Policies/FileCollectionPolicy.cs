@@ -35,16 +35,27 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public string Source => _definition.Source;
 
+    public bool AppliesTo(string? tenant)
+        => _definition.Clients.Count == 0
+            || (tenant is not null && _definition.Clients.Contains(tenant, StringComparer.Ordinal));
+
+    public bool CanRead(ClaimsPrincipal user)
+        => AccessRuleEvaluator.Allows(_definition.Access?.Read, user);
+
     public bool CanEdit(ClaimsPrincipal user, string slug)
+        => OwnsOrAdministers(user, slug) && AccessRuleEvaluator.Allows(_definition.Access?.Write, user);
+
+    public bool CanCreate(ClaimsPrincipal user)
+        => (_definition.ClaimSlug is null || _administrators.IsAdministrator(user))
+            && AccessRuleEvaluator.Allows(_definition.Access?.Create, user);
+
+    private bool OwnsOrAdministers(ClaimsPrincipal user, string slug)
     {
         if (_definition.ClaimSlug is not { } rule)
             return true;
 
         return _administrators.IsAdministrator(user) || OwnsSlug(rule, user, slug);
     }
-
-    public bool CanCreate(ClaimsPrincipal user)
-        => _definition.ClaimSlug is null || _administrators.IsAdministrator(user);
 
     public IReadOnlyCollection<string> GetVirtualSlugs(ClaimsPrincipal user, string? locale)
         => _definition.ClaimSlug is { } rule ? ClaimSlugDeriver.Derive(rule, user, locale) : [];

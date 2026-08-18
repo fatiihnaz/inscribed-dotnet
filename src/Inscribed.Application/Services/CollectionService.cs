@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json.Nodes;
+using Inscribed.Application.Contracts.Identity;
 using Inscribed.Application.Contracts.Policies;
 using Inscribed.Application.Contracts.Repositories;
 using Inscribed.Application.Contracts.Requests;
@@ -20,20 +21,23 @@ public sealed class CollectionService : ICollectionService
     private readonly ICollectionItemRepository _repository;
     private readonly ICollectionPolicyResolver _policyResolver;
     private readonly ICollectionDraftService _drafts;
+    private readonly IPrincipalTenant _tenant;
 
     public CollectionService(
         ICollectionItemRepository repository,
         ICollectionPolicyResolver policyResolver,
-        ICollectionDraftService drafts)
+        ICollectionDraftService drafts,
+        IPrincipalTenant tenant)
     {
         _repository = repository;
         _policyResolver = policyResolver;
         _drafts = drafts;
+        _tenant = tenant;
     }
 
-    public CollectionSchemaResponse GetSchema(string key)
+    public CollectionSchemaResponse GetSchema(string key, ClaimsPrincipal user)
     {
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForRead(key, user);
 
         return new CollectionSchemaResponse(
             CollectionKey: policy.Key,
@@ -48,8 +52,13 @@ public sealed class CollectionService : ICollectionService
     public IReadOnlyList<MyCollectionResponse> GetMyCollections(ClaimsPrincipal user)
     {
         var result = new List<MyCollectionResponse>();
+        var tenant = _tenant.Resolve(user);
+
         foreach (var policy in _policyResolver.All)
         {
+            if (!policy.AppliesTo(tenant))
+                continue;
+
             var canCreate = policy.CanCreate(user);
 
             if (!canCreate && policy.GetVirtualSlugs(user, locale: null).Count == 0)
@@ -78,7 +87,7 @@ public sealed class CollectionService : ICollectionService
         int limit,
         CancellationToken cancellationToken = default)
     {
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForRead(key, user);
         key = policy.Key;
         var locale = LocaleResolver.Resolve(policy.Locales, requestedLocale, forWrite: false);
         var order = CollectionSortParser.Parse(policy.Schema, sort);
@@ -128,7 +137,7 @@ public sealed class CollectionService : ICollectionService
     public async Task<CollectionItemResponse?> GetAsync(string key, string slug, string? requestedLocale, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForRead(key, user);
         key = policy.Key;
 
         var isEditor = !string.IsNullOrWhiteSpace(userId);
@@ -154,7 +163,7 @@ public sealed class CollectionService : ICollectionService
             return null;
 
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForRead(key, user);
 
         if (!policy.OwnsVirtualSlug(user, normalizedSlug))
             return null;
@@ -175,7 +184,7 @@ public sealed class CollectionService : ICollectionService
     public async Task<CollectionItemResponse> UpsertAsync(string key, string slug, string? requestedLocale, Guid? translationGroup, UpsertCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForWrite(key, user);
         key = policy.Key;
 
         if (!policy.CanEdit(user, normalizedSlug))
@@ -225,7 +234,7 @@ public sealed class CollectionService : ICollectionService
 
     public async Task<CollectionItemResponse> CreateAutoSlugAsync(string key, string? requestedLocale, Guid? translationGroup, CreateCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default)
     {
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForWrite(key, user);
         key = policy.Key;
         var locale = LocaleResolver.Resolve(policy.Locales, requestedLocale, forWrite: true);
 
@@ -295,7 +304,7 @@ public sealed class CollectionService : ICollectionService
     public async Task SaveItemDraftAsync(string key, string slug, string userId, ClaimsPrincipal user, SaveDraftRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForWrite(key, user);
         key = policy.Key;
 
         if (!policy.CanEdit(user, normalizedSlug))
@@ -309,7 +318,7 @@ public sealed class CollectionService : ICollectionService
 
     public async Task SavePendingDraftAsync(string key, string? requestedLocale, Guid? translationGroup, string userId, ClaimsPrincipal user, SavePendingDraftRequest request, CancellationToken cancellationToken = default)
     {
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForWrite(key, user);
         key = policy.Key;
         var locale = LocaleResolver.Resolve(policy.Locales, requestedLocale, forWrite: true);
 
@@ -348,12 +357,41 @@ public sealed class CollectionService : ICollectionService
 
     private ICollectionPolicy RequireEditable(string key, string slug, ClaimsPrincipal user)
     {
-        var policy = _policyResolver.Resolve(key);
+        var policy = ResolveForWrite(key, user);
 
         if (!policy.CanEdit(user, slug))
             throw new UnauthorizedAccessException($"User cannot edit '{policy.Key}/{slug}'.");
 
         return policy;
+    }
+
+    private ICollectionPolicy ResolveForRead(string key, ClaimsPrincipal user)
+    {
+        var policy = _policyResolver.Resolve(key);
+
+        if (policy.AllowAnonymousRead || user.Identity?.IsAuthenticated != true)
+            return policy;
+
+        RequireInScope(policy, user);
+
+        if (!policy.CanRead(user))
+            throw new UnauthorizedAccessException($"User cannot read '{policy.Key}'.");
+
+        return policy;
+    }
+
+    private ICollectionPolicy ResolveForWrite(string key, ClaimsPrincipal user)
+    {
+        var policy = _policyResolver.Resolve(key);
+        RequireInScope(policy, user);
+
+        return policy;
+    }
+
+    private void RequireInScope(ICollectionPolicy policy, ClaimsPrincipal user)
+    {
+        if (!policy.AppliesTo(_tenant.Resolve(user)))
+            throw new NotFoundException($"Unknown collection '{policy.Key}'.");
     }
 
     private async Task<CollectionItem?> FindWritableAsync(string key, string slug, bool required, CancellationToken cancellationToken)

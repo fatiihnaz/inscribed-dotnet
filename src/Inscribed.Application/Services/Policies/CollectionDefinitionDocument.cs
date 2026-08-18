@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Inscribed.Application.Contracts.Schemas;
 
 namespace Inscribed.Application.Services.Policies;
@@ -7,10 +8,33 @@ public sealed class CollectionDefinitionDocument
 {
     public string? Key { get; init; }
     public bool AllowAnonymousRead { get; init; }
+    public List<string>? Clients { get; init; }
+    public AccessDocument? Access { get; init; }
     public List<string>? Locales { get; init; }
     public SlugDefinitionDocument? Slug { get; init; }
     public List<FieldDefinitionDocument>? Fields { get; init; }
     public List<EnrichmentDocument>? Enrich { get; init; }
+}
+
+public sealed class AccessDocument
+{
+    public AccessRuleDocument? Read { get; init; }
+    public AccessRuleDocument? Create { get; init; }
+    public AccessRuleDocument? Write { get; init; }
+}
+
+public sealed class AccessRuleDocument
+{
+    public string? Claim { get; init; }
+    public List<string>? AnyOf { get; init; }
+    public List<string>? AllOf { get; init; }
+
+    [JsonPropertyName("equals")]
+    public string? EqualTo { get; init; }
+
+    public bool? Present { get; init; }
+    public List<AccessRuleDocument>? All { get; init; }
+    public List<AccessRuleDocument>? Any { get; init; }
 }
 
 public sealed class EnrichmentDocument

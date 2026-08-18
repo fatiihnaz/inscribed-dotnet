@@ -173,6 +173,52 @@ Slug uniqueness deliberately stays `(collection, slug)` with no locale in it. A 
 
 Field `label` and `help` stay in one language; translating the editor panel is out of scope.
 
+### Who may reach a collection
+
+Two optional keys narrow reach. Both are additive restrictions on top of the route policies, never grants:
+
+```jsonc
+{
+  "clients": ["site-a", "site-b"],
+  "access": {
+    "read":   { "claim": "roles", "anyOf": ["content:read", "content:write"] },
+    "create": { "claim": "roles", "anyOf": ["content:write"] },
+    "write":  { "any": [
+                 { "claim": "roles",  "anyOf": ["content:write"] },
+                 { "claim": "groups", "equals": "news-editors" }
+               ] }
+  }
+}
+```
+
+`clients` lists the tenants a collection belongs to, matched against the caller's tenant claim. Omit it and every tenant sees the collection. Items themselves are not tenant-scoped — collections are global and the table has no client column — so this is a visibility and permission rule, not data isolation.
+
+**`access` can only refuse, never allow.** The route still requires `content:write` to write and `content:read` or `content:write` to read; a predicate runs afterwards and can turn a yes into a no. This is deliberate: a mistake in a definition then over-restricts, and no mistake can open a collection up. A branch that is absent means no extra restriction for that action, which is why leaving `access` out reproduces the old behaviour exactly.
+
+A branch is a **claim test**, or a group of them:
+
+| Form | Meaning |
+|---|---|
+| `"anyOf": ["a", "b"]` | at least one of the claim values is in the list |
+| `"allOf": ["a", "b"]` | every listed value is among the claim values |
+| `"equals": "a"` | a claim value is exactly this |
+| `"present": true` | the claim exists at all; its value is not read |
+
+A test names one `claim` and exactly one of those four. Groups are `{ "all": [...] }` and `{ "any": [...] }`, and their entries must be plain tests: groups do not nest, so `A and (B or C)` cannot be written. The flat form covers what these rules need in practice, because the capability half of such a formula is already enforced by the route.
+
+Enforcement, in full:
+
+| Caller | Collection | Effect |
+|---|---|---|
+| anonymous | `allowAnonymousRead` | reads normally; neither key applies |
+| authenticated | `allowAnonymousRead` | reads normally; `clients` still hides it from `/cms/collections/me` and refuses writes |
+| authenticated | not public, reading | out of `clients` is **404**, refused by `access.read` is **403** |
+| any | not public, writing | out of `clients` is **404**, refused by `access.write` / `access.create` is **403** |
+
+Out-of-scope answers **404** rather than 403, with the same message an unknown key gets, so a tenant cannot discover which collections exist for others. Refusal by a predicate is **403**, because the collection is legitimately visible to that tenant.
+
+Public data stays public: a collection with `allowAnonymousRead` serves its published items to anyone, and `clients` narrows only the editing surface. For the same reason `allowAnonymousRead` together with an explicit `access.read` is a **startup error** rather than a silently dead rule.
+
 ### Translation groups
 
 Different slugs per language mean the rows cannot recognise each other by slug, so every item carries a `translationGroupId`. A record and its translations are the rows sharing one group.
@@ -350,6 +396,8 @@ An `enrich` entry augments items with data fetched from an external API **whenev
 
 The design is deliberately declarative: "issue a GET, pick fields from the response" covers the common cases with zero code, and everything a file can express is validated at boot. Anything beyond that (transforms, combining sources, non-GET calls) belongs in code behind the [seams](#code-seams), not in an ever-growing file dialect. Because parsing is strict, an `enrich` option this version does not support fails at boot instead of being silently ignored.
 
+The `access` predicates are the one deliberate exception to that restraint. Permission rules are genuinely declarative — they read claims and answer yes or no — and pushing them into code would mean a deploy every time a collection changes hands. The exception is kept narrow on purpose: predicates cannot nest, cannot call out, and cannot grant, so the dialect has a ceiling it cannot grow past.
+
 ### URL templates
 
 `{placeholders}` are filled from the item's own scalar fields, or `{slug}`. Values are URL-encoded. Placeholder names are **case-sensitive** and validated against the schema at startup, because the runtime lookup against item data is case-sensitive; a case mismatch that validated loosely would produce empty URLs in production. Allowed placeholder field types: `ShortText`, `LongText`, `Url`, `Number`, `Bool`, `Date`.
@@ -440,6 +488,8 @@ public interface ICollectionPolicy
     CollectionSchema Schema { get; }
     SlugSource SlugSource { get; }
     bool AllowAnonymousRead { get; }
+    bool AppliesTo(string? tenant) => true;
+    bool CanRead(ClaimsPrincipal user) => true;
     bool CanEdit(ClaimsPrincipal user, string slug);
     bool CanCreate(ClaimsPrincipal user);
     string? GetSlugSourceValue(JsonNode data);
@@ -454,6 +504,8 @@ public interface ICollectionEnricher
 
 `CanEdit` and `CanCreate` need one fact they cannot derive from the definition file: whether the caller is an administrator, and so may act on a claim-derived item that is not theirs. That comes from [`IAdministratorPolicy`](../src/Inscribed.Application/Contracts/Identity/IAdministratorPolicy.cs), implemented by whichever auth module is installed. Collections therefore name no capability of their own; swap the auth module and the ownership override follows its vocabulary.
 
+`AppliesTo` and `CanRead` default to `true`, which is exactly what a definition without `clients` or `access` means: no narrowing, and the route capability gate still decides first. A policy written in code therefore opts into scoping only by overriding them.
+
 `FileCollectionPolicy` implements `ICollectionPolicy` from a parsed definition and composes one `ICollectionEnricher` per `enrich` entry (the default factory produces `HttpEnricher`). Per-user permissions, computed fields, or non-HTTP data sources are implemented against these interfaces and registered in DI; the resolver treats code-registered and file-loaded policies identically and rejects duplicate keys at startup with an error naming both sources.
 
 ## Troubleshooting
@@ -463,6 +515,8 @@ public interface ICollectionEnricher
 | App will not start, `Invalid collection definition(s) in '…'` | seeding is still pending and one or more files failed validation; every error names its file, fix all listed |
 | App will not start, `Collections path '…' does not exist` | an explicitly configured `Collections:Path` points at a missing directory, while the table is still empty |
 | A collection answers **500** with `Collection Misconfigured` | its stored definition does not parse; the boot log and `collection show --key` both list the errors, fix it and import again |
+| A collection answers **404** for one tenant and works for another | its `clients` list does not name that tenant; the 404 is deliberate so the collection is not discoverable |
+| An editor with `content:write` gets **403** on a collection | an `access` predicate refused them; `collection show --key` prints the rule |
 | Editing a definition file changes nothing | the table is already seeded, so files are ignored; use `collection import --file` |
 | A collection is missing right after startup | on a fresh database with no definition files, nothing was seeded; import one |
 | Items load but enrichment fields are absent | check logs for `Enrichment request to … returned/failed` warnings; an empty placeholder field on the item also skips the request, silently |

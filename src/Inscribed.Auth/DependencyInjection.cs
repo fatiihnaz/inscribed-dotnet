@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddSingleton<ISigningKeyStore, SigningKeyStore>();
         services.AddSingleton<IJwtIssuer, JwtIssuer>();
         services.AddSingleton<IAdministratorPolicy, CapabilityAdministratorPolicy>();
+        services.AddSingleton<IPrincipalTenant, ClaimPrincipalTenant>();
 
         services.AddHttpClient();
         services.AddScoped<IUserRepository, UserRepository>();

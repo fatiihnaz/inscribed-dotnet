@@ -16,6 +16,10 @@ public interface ICollectionPolicy
 
     IReadOnlyList<string> Locales { get; }
 
+    bool AppliesTo(string? tenant) => true;
+
+    bool CanRead(ClaimsPrincipal user) => true;
+
     bool CanEdit(ClaimsPrincipal user, string slug);
 
     bool CanCreate(ClaimsPrincipal user);

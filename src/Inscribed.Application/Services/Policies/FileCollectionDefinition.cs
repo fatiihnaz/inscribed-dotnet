@@ -10,6 +10,8 @@ public sealed record FileCollectionDefinition(
     string? SlugSourceField,
     ClaimSlugRule? ClaimSlug,
     bool AllowAnonymousRead,
+    IReadOnlyList<string> Clients,
+    CollectionAccess? Access,
     IReadOnlyList<string> Locales,
     string Source,
     IReadOnlyList<EnrichmentDefinition> Enrichments

@@ -32,7 +32,7 @@ public static class CollectionEndpoints
                 return Results.Unauthorized();
 
             ApplyReadCacheHeaders(context, isEditor, isPublic);
-            var schema = service.GetSchema(key);
+            var schema = service.GetSchema(key, context.User);
             return Results.Ok(schema);
         }).AllowAnonymous();
 

@@ -16,9 +16,11 @@ public static class CollectionDefinitionParser
 {
     private const int DefaultCacheSeconds = 300;
     private const int MaxCacheSeconds = 86_400;
+    private const int MaxClientKeyLength = 64;
 
     private static readonly Regex KeyPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
     private static readonly Regex LocalePattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
+    private static readonly Regex ClientKeyPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
     private static readonly Regex FieldNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex PlaceholderPattern = new(@"\{([^{}]*)\}", RegexOptions.Compiled);
     private static readonly Regex ResponsePathPattern = new(@"^[A-Za-z0-9_]+(\[\d+\])?(\.[A-Za-z0-9_]+(\[\d+\])?)*$", RegexOptions.Compiled);
@@ -154,6 +156,8 @@ public static class CollectionDefinitionParser
         }
 
         var enrichments = BuildEnrichments(document.Enrich, fields, credentialNames, errors);
+        var clients = BuildClients(document.Clients, errors);
+        var access = BuildAccess(document.Access, document.AllowAnonymousRead, errors);
 
         if (errors.Count > 0 || fields is null)
             return null;
@@ -165,10 +169,170 @@ public static class CollectionDefinitionParser
             slugSourceField,
             claimSlug,
             document.AllowAnonymousRead,
+            clients,
+            access,
             locales,
             source,
             enrichments);
     }
+
+    private static List<string> BuildClients(List<string>? documents, List<string> errors)
+    {
+        if (documents is null)
+            return [];
+
+        if (documents.Count == 0)
+        {
+            errors.Add("'clients' must name at least one client when present; omit the key entirely to allow every client");
+            return [];
+        }
+
+        var clients = new List<string>(documents.Count);
+
+        foreach (var client in documents)
+        {
+            if (string.IsNullOrWhiteSpace(client))
+                errors.Add("'clients' entries must not be empty");
+            else if (!ClientKeyPattern.IsMatch(client))
+                errors.Add($"client '{client}' must be lowercase letters, digits and hyphens, not starting or ending with a hyphen");
+            else if (client.Length > MaxClientKeyLength)
+                errors.Add($"client '{client}' must be at most {MaxClientKeyLength} characters");
+            else if (clients.Contains(client, StringComparer.Ordinal))
+                errors.Add($"client '{client}' is listed more than once");
+            else
+                clients.Add(client);
+        }
+
+        return clients;
+    }
+
+    private static CollectionAccess? BuildAccess(AccessDocument? document, bool allowAnonymousRead, List<string> errors)
+    {
+        if (document is null)
+            return null;
+
+        if (document.Read is not null && allowAnonymousRead)
+            errors.Add("'access.read' cannot be combined with 'allowAnonymousRead': published data is already public, so the rule would never be consulted");
+
+        var read = BuildRule(document.Read, "access.read", errors);
+        var create = BuildRule(document.Create, "access.create", errors);
+        var write = BuildRule(document.Write, "access.write", errors);
+
+        if (read is null && create is null && write is null && errors.Count == 0)
+        {
+            errors.Add("'access' must declare at least one of 'read', 'create' or 'write'");
+            return null;
+        }
+
+        return new CollectionAccess(read, create, write);
+    }
+
+    private static AccessRule? BuildRule(AccessRuleDocument? document, string path, List<string> errors)
+    {
+        if (document is null)
+            return null;
+
+        var grouped = new[] { document.All, document.Any }.Count(list => list is not null);
+
+        if (grouped > 1)
+        {
+            errors.Add($"'{path}' accepts at most one of 'all' and 'any'");
+            return null;
+        }
+
+        if (grouped == 0)
+            return BuildLeaf(document, path, errors) is { } single ? new AccessRule(AccessCombine.All, [single]) : null;
+
+        if (IsLeafShaped(document))
+        {
+            errors.Add($"'{path}' is either a single claim test or a group of them, not both");
+            return null;
+        }
+
+        var combine = document.All is not null ? AccessCombine.All : AccessCombine.Any;
+        var entries = document.All ?? document.Any!;
+        var name = combine == AccessCombine.All ? "all" : "any";
+
+        if (entries.Count == 0)
+        {
+            errors.Add($"'{path}.{name}' must contain at least one claim test");
+            return null;
+        }
+
+        var leaves = new List<AccessLeaf>(entries.Count);
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var entryPath = $"{path}.{name}[{i}]";
+
+            if (entries[i].All is not null || entries[i].Any is not null)
+            {
+                errors.Add($"'{entryPath}': groups cannot be nested; every entry must be a single claim test");
+                continue;
+            }
+
+            if (BuildLeaf(entries[i], entryPath, errors) is { } leaf)
+                leaves.Add(leaf);
+        }
+
+        return leaves.Count == entries.Count ? new AccessRule(combine, leaves) : null;
+    }
+
+    private static AccessLeaf? BuildLeaf(AccessRuleDocument document, string path, List<string> errors)
+    {
+        if (string.IsNullOrWhiteSpace(document.Claim))
+        {
+            errors.Add($"'{path}': 'claim' is required");
+            return null;
+        }
+
+        var matchers = new object?[] { document.AnyOf, document.AllOf, document.EqualTo, document.Present }.Count(matcher => matcher is not null);
+
+        if (matchers != 1)
+        {
+            errors.Add($"'{path}': declare exactly one of 'anyOf', 'allOf', 'equals' and 'present'");
+            return null;
+        }
+
+        if (document.Present is { } present)
+            return new AccessLeaf(document.Claim, AccessMatch.Present, [], present);
+
+        if (document.EqualTo is { } equalTo)
+        {
+            if (string.IsNullOrWhiteSpace(equalTo))
+            {
+                errors.Add($"'{path}': 'equals' must not be empty");
+                return null;
+            }
+
+            return new AccessLeaf(document.Claim, AccessMatch.Equals, [equalTo], Present: true);
+        }
+
+        var match = document.AnyOf is not null ? AccessMatch.AnyOf : AccessMatch.AllOf;
+        var values = document.AnyOf ?? document.AllOf!;
+        var name = match == AccessMatch.AnyOf ? "anyOf" : "allOf";
+
+        if (values.Count == 0)
+        {
+            errors.Add($"'{path}': '{name}' must contain at least one value");
+            return null;
+        }
+
+        if (values.Any(string.IsNullOrWhiteSpace))
+        {
+            errors.Add($"'{path}': '{name}' entries must not be empty");
+            return null;
+        }
+
+        return new AccessLeaf(document.Claim, match, values, Present: true);
+    }
+
+    private static bool IsLeafShaped(AccessRuleDocument document)
+        => document.Claim is not null
+            || document.AnyOf is not null
+            || document.AllOf is not null
+            || document.EqualTo is not null
+            || document.Present is not null;
 
     private static List<string> BuildLocales(List<string>? documents, List<string> errors)
     {

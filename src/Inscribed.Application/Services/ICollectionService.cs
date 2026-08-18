@@ -8,7 +8,7 @@ namespace Inscribed.Application.Services;
 
 public interface ICollectionService
 {
-    CollectionSchemaResponse GetSchema(string key);
+    CollectionSchemaResponse GetSchema(string key, ClaimsPrincipal user);
 
     bool AllowsAnonymousRead(string key);
 

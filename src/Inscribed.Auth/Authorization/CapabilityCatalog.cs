@@ -12,6 +12,8 @@ public static class CapabilityCatalog
 {
     public const string RolesClaim = "roles";
 
+    public const string TenantClaim = "azp";
+
     public const string ContentRead = "content:read";
     public const string ContentWrite = "content:write";
     public const string SchemaSync = "schema:sync";
