@@ -67,6 +67,16 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
         return await query.FirstOrDefaultAsync(x => x.CollectionKey == key && x.Slug == slug, cancellationToken);
     }
 
+    public async Task<CollectionItem?> GetByIdAsync(string key, Guid id, bool includeArchived = false, CancellationToken cancellationToken = default)
+    {
+        var query = _context.CollectionItems.AsQueryable();
+
+        if (includeArchived)
+            query = query.IgnoreQueryFilters();
+
+        return await query.FirstOrDefaultAsync(x => x.CollectionKey == key && x.Id == id, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<TakenSlug>> GetTakenSlugsAsync(string key, IReadOnlyCollection<string> slugs, CancellationToken cancellationToken = default)
     {
         if (slugs.Count == 0)

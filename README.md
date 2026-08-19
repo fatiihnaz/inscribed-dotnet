@@ -152,9 +152,9 @@ A tenant is stored in **two halves**, because [the auth module is replaceable](#
 
 The split exists so an installation can swap the bundled auth for Keycloak: the `azp` claim then comes from Keycloak, but locales and anonymous-read are CMS policy that no identity provider knows about. `POST /admin/clients` writes the CMS half itself and delegates the identity half to an injected `IClientIdentityStore` — the default implementation writes `auth_clients`, and a Keycloak deployment supplies its own (or a no-op, if clients are registered over there by hand). Nothing under `/cms/*` reads the identity half.
 
-**Registration is mandatory and always goes through this API.** A token whose `azp` has no `clients` row is rejected with **403** on every `/cms/*` content route; there are no implicit tenants. Collections are unaffected — they are installation-wide and never consult a client.
+**Registration is mandatory and always goes through this API.** A token whose `azp` has no `clients` row is rejected with **403** on every `/cms/*` content route; there are no implicit tenants. Collections are installation-wide by default, but a definition may narrow itself to named tenants with `clients`; see [docs/collections.md](docs/collections.md).
 
-> **One limit:** collection items are currently **not** tenant-scoped; a collection's data is shared across all clients of an installation. Page content blocks are fully scoped per client.
+> **One limit:** collection items are currently **not** tenant-scoped. `clients` scopes the *definition*, not the rows: it decides who sees a collection at all, and every tenant that does see it shares the same data. Page content blocks are fully scoped per client.
 
 ### Pages and content blocks
 

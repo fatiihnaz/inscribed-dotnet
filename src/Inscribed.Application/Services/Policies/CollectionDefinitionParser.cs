@@ -111,9 +111,15 @@ public static class CollectionDefinitionParser
         var slugSource = SlugSource.UserDefined;
         string? slugSourceField = null;
         ClaimSlugRule? claimSlug = null;
+        var slugEditable = false;
 
         if (document.Slug is { } slug)
         {
+            slugEditable = slug.Editable;
+
+            if (slug.Editable && slug.Source == SlugSource.ClaimDerived)
+                errors.Add("'slug.editable' is not valid when 'slug.source' is 'ClaimDerived'; the slug is derived from the caller claims, so renaming it would hand the item to nobody");
+
             if (slug.Source is not SlugSource.ClaimDerived
                 && (slug.Claim ?? slug.EndsWith ?? slug.StartsWith ?? slug.Pattern) is not null)
             {
@@ -168,6 +174,7 @@ public static class CollectionDefinitionParser
             slugSource,
             slugSourceField,
             claimSlug,
+            slugEditable,
             document.AllowAnonymousRead,
             clients,
             access,

@@ -19,17 +19,20 @@ public sealed class CollectionService : ICollectionService
     private const int EnrichmentParallelism = 8;
 
     private readonly ICollectionItemRepository _repository;
+    private readonly ICollectionSlugAliasRepository _aliases;
     private readonly ICollectionPolicyResolver _policyResolver;
     private readonly ICollectionDraftService _drafts;
     private readonly IPrincipalTenant _tenant;
 
     public CollectionService(
         ICollectionItemRepository repository,
+        ICollectionSlugAliasRepository aliases,
         ICollectionPolicyResolver policyResolver,
         ICollectionDraftService drafts,
         IPrincipalTenant tenant)
     {
         _repository = repository;
+        _aliases = aliases;
         _policyResolver = policyResolver;
         _drafts = drafts;
         _tenant = tenant;
@@ -43,6 +46,7 @@ public sealed class CollectionService : ICollectionService
             CollectionKey: policy.Key,
             Schema: policy.Schema,
             SlugSource: policy.SlugSource.ToString(),
+            SlugEditable: policy.SlugEditable,
             Locales: policy.Locales);
     }
 
@@ -69,6 +73,7 @@ public sealed class CollectionService : ICollectionService
                 Schema: policy.Schema,
                 CanCreate: canCreate,
                 SlugSource: policy.SlugSource.ToString(),
+                SlugEditable: policy.SlugEditable,
                 Locales: policy.Locales
             ));
         }
@@ -141,7 +146,9 @@ public sealed class CollectionService : ICollectionService
         key = policy.Key;
 
         var isEditor = !string.IsNullOrWhiteSpace(userId);
-        var item = await _repository.GetBySlugAsync(key, normalizedSlug, includeArchived: isEditor, cancellationToken);
+        var item = await _repository.GetBySlugAsync(key, normalizedSlug, includeArchived: isEditor, cancellationToken)
+            ?? await ResolveAliasAsync(key, normalizedSlug, isEditor, cancellationToken);
+
         if (item is null) return null;
 
         item = await ResolveLocaleSiblingAsync(policy, item, requestedLocale, cancellationToken);
@@ -181,7 +188,7 @@ public sealed class CollectionService : ICollectionService
             Locale: policy.Locales.FirstOrDefault(locale => normalizedSlug.EndsWith($"-{locale}", StringComparison.Ordinal)));
     }
 
-    public async Task<CollectionItemResponse> UpsertAsync(string key, string slug, string? requestedLocale, Guid? translationGroup, UpsertCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default)
+    public async Task<CollectionItemResponse> UpsertAsync(string key, string slug, string? requestedLocale, Guid? translationGroup, UpsertCollectionItemRequest request, ClaimsPrincipal user, string updatedBy, bool replaceAlias = false, CancellationToken cancellationToken = default)
     {
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
         var policy = ResolveForWrite(key, user);
@@ -206,6 +213,8 @@ public sealed class CollectionService : ICollectionService
 
             if (!policy.CanCreate(user) && !policy.GetVirtualSlugs(user, locale).Contains(normalizedSlug))
                 throw new UnauthorizedAccessException($"User cannot create new items in '{key}'.");
+
+            await ClearAliasAsync(key, normalizedSlug, ownerId: null, replaceAlias, cancellationToken);
 
             var group = await ResolveTranslationGroupAsync(key, translationGroup, locale, cancellationToken)
                 ?? await ResolveDerivedTranslationGroupAsync(policy, normalizedSlug, locale, cancellationToken);
@@ -298,6 +307,100 @@ public sealed class CollectionService : ICollectionService
 
         var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
         var translations = await LoadTranslationsAsync(policy.Key, item, policy.Locales, cancellationToken);
+        return ToResponse(item, enriched, canEdit: true, translations: translations);
+    }
+
+    public async Task<CollectionItemResponse> RenameSlugAsync(string key, string slug, RenameSlugRequest request, ClaimsPrincipal user, string updatedBy, bool replaceAlias, CancellationToken cancellationToken = default)
+    {
+        var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
+        var policy = RequireEditable(key, normalizedSlug, user);
+        key = policy.Key;
+
+        if (!policy.SlugEditable)
+            throw new ValidationException([$"Collection '{key}' does not allow slug edits; set 'slug.editable' in its definition."]);
+
+        var target = SlugNormalizer.NormalizeBlockPath(request.Slug ?? string.Empty);
+
+        if (string.IsNullOrWhiteSpace(target))
+            throw new ValidationException(["A new slug is required."]);
+
+        var item = (await FindWritableAsync(key, normalizedSlug, required: true, cancellationToken))!;
+
+        RequireVersion(key, normalizedSlug, request.Version, item.Version);
+
+        if (string.Equals(target, item.Slug, StringComparison.Ordinal))
+            return await BuildRenameResponseAsync(policy, item, cancellationToken);
+
+        if (await _repository.GetBySlugAsync(key, target, includeArchived: true, cancellationToken) is not null)
+            throw new ConflictException($"Slug '{target}' is already taken in '{key}'.");
+
+        await ClearAliasAsync(key, target, item.Id, replaceAlias, cancellationToken);
+
+        var utcNow = DateTime.UtcNow;
+        item.Rename(target, updatedBy, utcNow);
+        await _aliases.AddAsync(CollectionSlugAlias.Create(key, normalizedSlug, item.Id, utcNow), cancellationToken);
+        await _repository.SaveChangesAsync(cancellationToken);
+
+        await MoveItemDraftAsync(key, normalizedSlug, target, updatedBy, cancellationToken);
+
+        return await BuildRenameResponseAsync(policy, item, cancellationToken);
+    }
+
+    public async Task ReleaseAliasAsync(string key, string slug, ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    {
+        var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
+        var policy = ResolveForWrite(key, user);
+
+        var alias = await _aliases.GetAsync(policy.Key, normalizedSlug, cancellationToken)
+            ?? throw new NotFoundException($"Alias '{policy.Key}/{normalizedSlug}' was not found.");
+
+        var item = await _repository.GetByIdAsync(policy.Key, alias.ItemId, includeArchived: true, cancellationToken);
+
+        if (item is not null && !policy.CanEdit(user, item.Slug))
+            throw new UnauthorizedAccessException($"User cannot edit '{policy.Key}/{item.Slug}'.");
+
+        _aliases.Remove(alias);
+        await _repository.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<CollectionItem?> ResolveAliasAsync(string key, string slug, bool includeArchived, CancellationToken cancellationToken)
+    {
+        var alias = await _aliases.GetAsync(key, slug, cancellationToken);
+
+        return alias is null
+            ? null
+            : await _repository.GetByIdAsync(key, alias.ItemId, includeArchived, cancellationToken);
+    }
+
+    private async Task ClearAliasAsync(string key, string slug, Guid? ownerId, bool replaceAlias, CancellationToken cancellationToken)
+    {
+        var alias = await _aliases.GetAsync(key, slug, cancellationToken);
+
+        if (alias is null)
+            return;
+
+        if (alias.ItemId != ownerId && !replaceAlias)
+            throw new ConflictException(
+                $"Slug '{slug}' is held by an alias in '{key}'. Retry with 'replaceAlias=true' to take it over.");
+
+        _aliases.Remove(alias);
+    }
+
+    private async Task MoveItemDraftAsync(string key, string fromSlug, string toSlug, string userId, CancellationToken cancellationToken)
+    {
+        var draft = await _drafts.GetItemDraftAsync(key, fromSlug, userId, cancellationToken);
+
+        if (draft is not null)
+            await _drafts.SaveItemDraftAsync(key, toSlug, userId, draft.Data, cancellationToken);
+
+        await _drafts.DeleteItemDraftAsync(key, fromSlug, userId, cancellationToken);
+    }
+
+    private async Task<CollectionItemResponse> BuildRenameResponseAsync(ICollectionPolicy policy, CollectionItem item, CancellationToken cancellationToken)
+    {
+        var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+        var translations = await LoadTranslationsAsync(policy.Key, item, policy.Locales, cancellationToken);
+
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
 
@@ -646,12 +749,16 @@ public sealed class CollectionService : ICollectionService
     {
         var candidate = baseSlug;
         var n = 2;
-        while (await _repository.GetBySlugAsync(key, candidate, includeArchived: true, cancellationToken: cancellationToken) is not null)
+        while (await IsSlugTakenAsync(key, candidate, cancellationToken))
         {
             candidate = $"{baseSlug}-{n++}";
         }
         return candidate;
     }
+
+    private async Task<bool> IsSlugTakenAsync(string key, string slug, CancellationToken cancellationToken)
+        => await _repository.GetBySlugAsync(key, slug, includeArchived: true, cancellationToken) is not null
+            || await _aliases.ExistsAsync(key, slug, cancellationToken);
 
     private static CollectionItemResponse ToResponse(
         CollectionItem item,

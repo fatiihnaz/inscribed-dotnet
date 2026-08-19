@@ -103,20 +103,44 @@ public static class CollectionEndpoints
 
             var item = await service.GetAsync(key, slug, locale, context.User, userId, ct);
             if (item is not null)
+            {
+                if (!string.Equals(slug, item.Slug, StringComparison.Ordinal))
+                    context.Response.Headers.ContentLocation = $"/cms/collections/{key}/{item.Slug}";
+
                 return Results.Ok(item);
+            }
 
             var virtualItem = await service.GetVirtualAsync(key, slug, context.User, userId, ct);
             return virtualItem is null ? Results.NotFound() : Results.Ok(virtualItem);
         }).AllowAnonymous();
 
-        group.MapPut("/{slug}", async (string key, string slug, string? locale, Guid? translationGroup, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        group.MapPut("/{slug}", async (string key, string slug, string? locale, Guid? translationGroup, bool? replaceAlias, UpsertCollectionItemRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
             var updatedBy = context.User.GetUserSub();
             if (string.IsNullOrWhiteSpace(updatedBy))
                 return Results.Unauthorized();
 
-            var response = await service.UpsertAsync(key, slug, locale, translationGroup, request, context.User, updatedBy, ct);
+            var response = await service.UpsertAsync(key, slug, locale, translationGroup, request, context.User, updatedBy, replaceAlias ?? false, ct);
             return Results.Ok(response);
+        });
+
+        group.MapPut("/{slug}/slug", async (string key, string slug, bool? replaceAlias, RenameSlugRequest request, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            var updatedBy = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(updatedBy))
+                return Results.Unauthorized();
+
+            var response = await service.RenameSlugAsync(key, slug, request, context.User, updatedBy, replaceAlias ?? false, ct);
+            return Results.Ok(response);
+        });
+
+        group.MapDelete("/{slug}/alias", async (string key, string slug, HttpContext context, ICollectionService service, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(context.User.GetUserSub()))
+                return Results.Unauthorized();
+
+            await service.ReleaseAliasAsync(key, slug, context.User, ct);
+            return Results.NoContent();
         });
 
         group.MapDelete("/{slug}", async (string key, string slug, int? version, HttpContext context, ICollectionService service, CancellationToken ct) =>

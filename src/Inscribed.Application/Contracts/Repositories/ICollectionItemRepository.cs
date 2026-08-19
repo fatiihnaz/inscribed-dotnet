@@ -19,6 +19,8 @@ public interface ICollectionItemRepository
 
     Task<CollectionItem?> GetBySlugAsync(string key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
 
+    Task<CollectionItem?> GetByIdAsync(string key, Guid id, bool includeArchived = false, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<TakenSlug>> GetTakenSlugsAsync(string key, IReadOnlyCollection<string> slugs, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<CollectionItem>> GetBySlugsAsync(string key, IReadOnlyCollection<string> slugs, CancellationToken cancellationToken = default);

@@ -55,6 +55,17 @@ public sealed class CollectionItem : Entity
         Version += 1;
     }
 
+    public void Rename(string slug, string updatedBy, DateTime utcNow)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
+
+        Slug = slug;
+        UpdatedBy = updatedBy;
+        UpdatedAt = utcNow;
+        Version += 1;
+    }
+
     public void Archive(string updatedBy, DateTime utcNow)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);

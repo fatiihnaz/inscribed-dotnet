@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<IContentBlockRepository, ContentBlockRepository>();
         services.AddScoped<ICollectionItemRepository, CollectionItemRepository>();
         services.AddScoped<ICollectionDefinitionRepository, CollectionDefinitionRepository>();
+        services.AddScoped<ICollectionSlugAliasRepository, CollectionSlugAliasRepository>();
 
         return services;
     }

@@ -12,6 +12,8 @@ public interface ICollectionPolicy
 
     SlugSource SlugSource { get; }
 
+    bool SlugEditable => false;
+
     bool AllowAnonymousRead { get; }
 
     IReadOnlyList<string> Locales { get; }

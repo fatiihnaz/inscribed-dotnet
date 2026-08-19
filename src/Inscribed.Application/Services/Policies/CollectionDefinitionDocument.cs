@@ -60,6 +60,7 @@ public sealed class SlugDefinitionDocument
     public string? EndsWith { get; init; }
     public string? StartsWith { get; init; }
     public string? Pattern { get; init; }
+    public bool Editable { get; init; }
 }
 
 public sealed class FieldDefinitionDocument

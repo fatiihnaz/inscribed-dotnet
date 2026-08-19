@@ -29,6 +29,8 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public SlugSource SlugSource => _definition.SlugSource;
 
+    public bool SlugEditable => _definition.SlugEditable;
+
     public bool AllowAnonymousRead => _definition.AllowAnonymousRead;
 
     public IReadOnlyList<string> Locales => _definition.Locales;
