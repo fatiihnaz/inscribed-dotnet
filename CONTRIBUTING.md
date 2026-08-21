@@ -147,7 +147,7 @@ There is **no test project yet**; adding one (xUnit under `tests/`) is welcome a
 
 ### Add a new collection
 
-Write a JSON definition (use [collections/news.json](collections/news.json) as the template) and import it with `collection import --file <path>`, then reload with `POST /admin/collections/reload` or a restart. Definitions live in the database; the collections directory only seeds an empty table on first boot. Validation happens in [CollectionDefinitionParser](src/Inscribed.Application/Services/Policies/CollectionDefinitionParser.cs) and runs before anything is written, so a broken document is rejected at import rather than discovered at the next restart.
+Write a JSON definition (use [collections/news.json](collections/news.json) as the template) and import it with `collection import --file <path>`; it is live on the next request, with nothing to reload. Definitions live in the database; the collections directory only seeds an empty table on first boot. Validation happens in [CollectionDefinitionParser](src/Inscribed.Application/Services/Policies/CollectionDefinitionParser.cs) and runs before anything is written, so a broken document is rejected at import rather than discovered at the next restart.
 
 No migration is needed: items of all collections share the `CollectionItem` table, and endpoints/validation pick the new collection up from the loaded policy. External data can be pulled in declaratively with an `enrich` block; the definition reference, enrichment semantics and credential setup live in [docs/collections.md](docs/collections.md). `ICollectionPolicy` and `ICollectionEnricher` remain the internal seams for behavior a JSON file cannot express.
 

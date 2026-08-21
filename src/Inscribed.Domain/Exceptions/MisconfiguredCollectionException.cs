@@ -3,7 +3,7 @@ namespace Inscribed.Domain.Exceptions;
 public sealed class MisconfiguredCollectionException : Exception
 {
     public MisconfiguredCollectionException(string key, IReadOnlyList<string> errors)
-        : base($"Collection '{key}' is defined but its definition is invalid, so it is not being served. Fix the definition and reload.")
+        : base($"Collection '{key}' is defined but its definition is invalid, so it is not being served. Import a corrected definition.")
     {
         Key = key;
         Errors = errors;

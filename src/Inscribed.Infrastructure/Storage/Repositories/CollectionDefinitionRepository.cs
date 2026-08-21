@@ -20,6 +20,26 @@ internal sealed class CollectionDefinitionRepository : ICollectionDefinitionRepo
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CollectionDefinitionStamp>> ListStampsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.CollectionDefinitions
+            .AsNoTracking()
+            .OrderBy(x => x.Key)
+            .Select(x => new CollectionDefinitionStamp(x.Key, x.Version))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int?> GetVersionAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var versions = await _context.CollectionDefinitions
+            .AsNoTracking()
+            .Where(x => x.Key == key)
+            .Select(x => x.Version)
+            .ToListAsync(cancellationToken);
+
+        return versions.Count == 0 ? null : versions[0];
+    }
+
     public Task<CollectionDefinition?> GetAsync(string key, CancellationToken cancellationToken = default)
     {
         return _context.CollectionDefinitions.FirstOrDefaultAsync(x => x.Key == key, cancellationToken);

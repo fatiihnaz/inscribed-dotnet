@@ -8,11 +8,11 @@ namespace Inscribed.Application.Services;
 
 public interface ICollectionService
 {
-    CollectionSchemaResponse GetSchema(string key, ClaimsPrincipal user);
+    Task<CollectionSchemaResponse> GetSchemaAsync(string key, ClaimsPrincipal user, CancellationToken cancellationToken = default);
 
-    bool AllowsAnonymousRead(string key);
+    Task<bool> AllowsAnonymousReadAsync(string key, CancellationToken cancellationToken = default);
 
-    IReadOnlyList<MyCollectionResponse> GetMyCollections(ClaimsPrincipal user);
+    Task<IReadOnlyList<MyCollectionResponse>> GetMyCollectionsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
 
     Task<CollectionListResponse> ListAsync(
         string key,

@@ -29,15 +29,21 @@ collection delete    --key <key> [--force]
 
 Two locale changes get their own warning because they are quiet rather than loud. Adding `locales` to a collection that had none leaves every stored item with no locale, so locale-filtered reads stop returning them; `--assign-locale <code>` backfills them in the same command. Removing `locales` merges what were separate languages into one list.
 
-### Loading and reload
+### Staying current
 
-A running instance serves an immutable snapshot built at boot. `POST /admin/collections/reload` (tenant admin) rebuilds it from the table and swaps it in; requests already in flight finish against the snapshot they started with. Rebuilding also recreates the enrichment clients, so response caches start cold.
+**There is nothing to reload.** A change made with `collection import` or `collection delete` is live on the very next request, in every process, with no restart, no signal and no command to remember.
 
-**A stored definition that fails to parse does not take the process down.** Every valid definition keeps being served, the invalid one is logged with its full error list, and it is remembered as broken rather than forgotten: reading it answers **500** naming what is wrong, instead of the **404** that would make an operator think it had been deleted. Boot and reload behave identically here, so a definition can never work in memory and fail on the next restart. Reload answers **400** listing the failing keys when part of the load did not succeed, with everything else already swapped in.
+The mechanism is a cache the caller validates rather than one somebody has to invalidate. Every definition row carries a `Version`. Resolving a collection reads that one number (`SELECT "Version" WHERE "Key" = …`, a single indexed row), and reuses the parsed policy it already holds when the number still matches. Only a changed number costs a document fetch and a reparse, and only for the collection that changed. Parsing is the expensive part, not reading; that is what the cache is for and what the version check protects.
+
+The cost is one small query per request, and it buys the absence of a whole category of problem. Nothing goes stale, so nothing has to be told, which means there is no channel to keep open, no listener to reconnect, and no window in which two instances disagree about the schema. A panel can read the schema from one instance and write to another in the same second.
+
+Within one request the resolution is memoised, so a route that consults a collection twice still pays for one query. A rebuild recreates the enricher objects, but enrichment responses survive it: the cache they read is a process-wide `IMemoryCache` keyed by credential and URL, so nothing is refetched that was not already due.
+
+Nothing is loaded at boot. A definition is read the first time somebody asks for it and not before, so startup does no work that a request would not do anyway.
+
+**A stored definition that fails to parse does not take the process down.** Every valid definition keeps being served, the invalid one is logged with its full error list, and it is remembered as broken rather than forgotten: reading it answers **500** naming what is wrong, instead of the **404** that would make an operator think it had been deleted. The failure is cached against the same version, so a broken document is parsed once rather than on every request, and fixing it clears the failure on the next read.
 
 This is the trade that moving definitions into the database forces. When they lived in files, a bad definition failed the deploy, which is where someone was watching; a bad row would instead take the app down at whatever unrelated restart came next, so it must not be fatal. The defence moved to the write side: `import` parses before it stores and refuses to write anything that does not parse, and it is the only path that writes.
-
-> **Multi-instance:** reload is per process. Each instance has to be told, and until it is, instances disagree about the schema. A panel that reads the schema from one instance and writes to another can be rejected for a field the writer has not heard of yet.
 
 ## Definition file reference
 
@@ -551,7 +557,8 @@ public interface ICollectionEnricher
 |---|---|
 | App will not start, `Invalid collection definition(s) in '…'` | seeding is still pending and one or more files failed validation; every error names its file, fix all listed |
 | App will not start, `Collections path '…' does not exist` | an explicitly configured `Collections:Path` points at a missing directory, while the table is still empty |
-| A collection answers **500** with `Collection Misconfigured` | its stored definition does not parse; the boot log and `collection show --key` both list the errors, fix it and import again |
+| A collection answers **500** with `Collection Misconfigured` | its stored definition does not parse; the log line from the first read and `collection show --key` both list the errors, and importing a fixed document clears it on the next read |
+| An imported definition does not show up | it does, on the next request; if it genuinely does not, `collection list` will show whether the import reached the table at all |
 | A collection answers **404** for one tenant and works for another | its `clients` list does not name that tenant; the 404 is deliberate so the collection is not discoverable |
 | An editor with `content:write` gets **403** on a collection | an `access` predicate refused them; `collection show --key` prints the rule |
 | Renaming a slug answers **400** | the definition does not set `slug.editable`, or it is a `ClaimDerived` collection where the setting is not allowed |

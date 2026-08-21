@@ -16,29 +16,29 @@ public static class CollectionEndpoints
 
     public static IEndpointRouteBuilder MapCollectionEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/cms/collections/me", (HttpContext context, ICollectionService service) =>
+        app.MapGet("/cms/collections/me", async (HttpContext context, ICollectionService service, CancellationToken ct) =>
         {
-            var mine = service.GetMyCollections(context.User);
+            var mine = await service.GetMyCollectionsAsync(context.User, ct);
             return Results.Ok(mine);
         }).RequireAuthorization("ContentWrite");
 
         var group = app.MapGroup("/cms/collections/{key}").RequireAuthorization("ContentWrite");
 
-        group.MapGet("/schema", async (string key, HttpContext context, ICollectionService service, IAuthorizationService authorization) =>
+        group.MapGet("/schema", async (string key, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
-            var isPublic = service.AllowsAnonymousRead(key);
+            var isPublic = await service.AllowsAnonymousReadAsync(key, ct);
             var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
             if (!canRead && !isPublic)
                 return Results.Unauthorized();
 
             ApplyReadCacheHeaders(context, isEditor, isPublic);
-            var schema = service.GetSchema(key, context.User);
+            var schema = await service.GetSchemaAsync(key, context.User, ct);
             return Results.Ok(schema);
         }).AllowAnonymous();
 
         group.MapGet("/", async (string key, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
-            var isPublic = service.AllowsAnonymousRead(key);
+            var isPublic = await service.AllowsAnonymousReadAsync(key, ct);
             var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
             if (!canRead && !isPublic)
                 return Results.Unauthorized();
@@ -93,7 +93,7 @@ public static class CollectionEndpoints
 
         group.MapGet("/{slug}", async (string key, string slug, string? locale, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
         {
-            var isPublic = service.AllowsAnonymousRead(key);
+            var isPublic = await service.AllowsAnonymousReadAsync(key, ct);
             var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
             if (!canRead && !isPublic)
                 return Results.Unauthorized();

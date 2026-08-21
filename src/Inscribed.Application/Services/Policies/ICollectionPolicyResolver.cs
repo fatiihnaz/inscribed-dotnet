@@ -4,9 +4,7 @@ namespace Inscribed.Application.Services.Policies;
 
 public interface ICollectionPolicyResolver
 {
-    ICollectionPolicy Resolve(string key);
+    Task<ICollectionPolicy> ResolveAsync(string key, CancellationToken cancellationToken = default);
 
-    IReadOnlyCollection<ICollectionPolicy> All { get; }
-
-    IReadOnlyDictionary<string, IReadOnlyList<string>> Misconfigured { get; }
+    Task<IReadOnlyCollection<ICollectionPolicy>> AllAsync(CancellationToken cancellationToken = default);
 }

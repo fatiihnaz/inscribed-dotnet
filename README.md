@@ -224,7 +224,7 @@ Drafts are **per user, per page (or per collection item), stored in Redis**, and
 
 ### Collections
 
-Collections hold structured items that are not blocks on a page. Each collection is a **JSON definition document** kept in the database. On a fresh database the API seeds it from every `*.json` file in `Collections:Path` (default `collections/`, mounted from `./collections` in the compose file); after that, definitions are managed with the admin CLI (`collection import`, `collection export`) and picked up by `POST /admin/collections/reload` or a restart. Either way, adding a collection needs **no code and no migration**. The repository ships [collections/news.json](collections/news.json) as a working example:
+Collections hold structured items that are not blocks on a page. Each collection is a **JSON definition document** kept in the database. On a fresh database the API seeds it from every `*.json` file in `Collections:Path` (default `collections/`, mounted from `./collections` in the compose file); after that, definitions are managed with the admin CLI (`collection import`, `collection export`) and every running instance serves the change on its next request, with no restart and nothing to trigger. Either way, adding a collection needs **no code and no migration**. The repository ships [collections/news.json](collections/news.json) as a working example:
 
 ```json
 {
