@@ -137,9 +137,11 @@ A slug is fixed once the item exists unless the definition opts in:
 | The collection is not `editable` | 400 |
 | The caller cannot edit the item | 403 |
 | `version` is missing or stale | 409 |
-| A live or archived item already holds the new slug | 409 |
-| An alias of **another** item holds the new slug | 409; retry with `?replaceAlias=true` to take it over |
+| A live or archived item already holds the new slug | 409, `reason: "taken"` |
+| An alias of **another** item holds the new slug | 409, `reason: "alias"`; retry with `?replaceAlias=true` to take it over |
 | An alias of **this** item holds the new slug (renaming back) | the alias is dropped and the rename proceeds |
+
+Both slug conflicts carry `reason` and `conflictingSlug` so a panel can branch on the extension rather than on the sentence in `detail`, exactly as it already does for the archived 409. `conflictingSlug` is **the current address of the item standing in the way**, which for `taken` is the slug you asked for and for `alias` is somewhere else entirely: that second one is worth showing, because `?replaceAlias=true` breaks the inbound links of the item it names.
 
 Aliases are per collection and never chain: each one points straight at an item, so `a → b → c` leaves two aliases resolving directly to the item, not a chain to walk. A live item always wins, because a slug can never be a live slug and an alias at the same time: `POST` skips aliased slugs when it suffixes (`-2`, `-3`, …), and `PUT` onto an aliased slug answers 409 unless you pass `?replaceAlias=true`.
 

@@ -334,7 +334,7 @@ public sealed class CollectionService : ICollectionService
             return await BuildRenameResponseAsync(policy, item, cancellationToken);
 
         if (await _repository.GetBySlugAsync(key, target, includeArchived: true, cancellationToken) is not null)
-            throw new ConflictException($"Slug '{target}' is already taken in '{key}'.");
+            throw new ConflictException($"Slug '{target}' is already taken in '{key}'.", "taken", target);
 
         await ClearAliasAsync(key, target, item.Id, replaceAlias, cancellationToken);
 
@@ -382,8 +382,16 @@ public sealed class CollectionService : ICollectionService
             return;
 
         if (alias.ItemId != ownerId && !replaceAlias)
+        {
+            var owner = await _repository.GetByIdAsync(key, alias.ItemId, includeArchived: true, cancellationToken);
+
             throw new ConflictException(
-                $"Slug '{slug}' is held by an alias in '{key}'. Retry with 'replaceAlias=true' to take it over.");
+                owner is null
+                    ? $"Slug '{slug}' is an old address of another item in '{key}'. Retry with 'replaceAlias=true' to take it over."
+                    : $"Slug '{slug}' is an old address of '{owner.Slug}' in '{key}'. Retry with 'replaceAlias=true' to take it over.",
+                "alias",
+                owner?.Slug);
+        }
 
         _aliases.Remove(alias);
     }

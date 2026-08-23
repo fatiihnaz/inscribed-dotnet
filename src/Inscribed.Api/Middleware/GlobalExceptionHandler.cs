@@ -49,6 +49,14 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         if (exception is ConcurrencyConflictException { Conflicts.Count: > 0 } conflict)
             problem.Extensions["conflicts"] = conflict.Conflicts;
 
+        if (exception is ConflictException { Reason: not null } slugConflict)
+        {
+            problem.Extensions["reason"] = slugConflict.Reason;
+
+            if (slugConflict.ConflictingSlug is not null)
+                problem.Extensions["conflictingSlug"] = slugConflict.ConflictingSlug;
+        }
+
         if (exception is ValidationException { Errors.Count: > 0 } validation)
             problem.Extensions["errors"] = validation.Errors;
 
