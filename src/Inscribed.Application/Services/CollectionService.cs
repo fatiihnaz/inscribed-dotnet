@@ -17,6 +17,8 @@ namespace Inscribed.Application.Services;
 public sealed class CollectionService : ICollectionService
 {
     private const int EnrichmentParallelism = 8;
+    private const string MovedReason = "moved";
+    private const string AliasReason = "alias";
 
     private readonly ICollectionItemRepository _repository;
     private readonly ICollectionSlugAliasRepository _aliases;
@@ -202,7 +204,7 @@ public sealed class CollectionService : ICollectionService
         var validated = CollectionSchemaValidator.ValidateAndStrip(policy.Schema, request.Data);
 
         var utcNow = DateTime.UtcNow;
-        var item = await FindWritableAsync(key, normalizedSlug, required: false, cancellationToken);
+        var item = await FindWritableAsync(key, normalizedSlug, required: false, tolerateAlias: true, cancellationToken);
         var created = false;
         string? createdLocale = null;
 
@@ -216,7 +218,7 @@ public sealed class CollectionService : ICollectionService
             if (!policy.CanCreate(user) && !policy.GetVirtualSlugs(user, locale).Contains(normalizedSlug))
                 throw new UnauthorizedAccessException($"User cannot create new items in '{key}'.");
 
-            await ClearAliasAsync(key, normalizedSlug, ownerId: null, replaceAlias, cancellationToken);
+            await ClearAliasAsync(key, normalizedSlug, ownerId: null, replaceAlias, MovedReason, cancellationToken);
 
             var group = await ResolveTranslationGroupAsync(key, translationGroup, locale, cancellationToken)
                 ?? await ResolveDerivedTranslationGroupAsync(policy, normalizedSlug, locale, cancellationToken);
@@ -285,7 +287,7 @@ public sealed class CollectionService : ICollectionService
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
         var policy = await RequireEditableAsync(key, normalizedSlug, user, cancellationToken);
 
-        var item = (await FindWritableAsync(policy.Key, normalizedSlug, required: true, cancellationToken))!;
+        var item = (await FindWritableAsync(policy.Key, normalizedSlug, required: true, tolerateAlias: false, cancellationToken))!;
 
         RequireVersion(policy.Key, normalizedSlug, version, item.Version);
 
@@ -301,8 +303,13 @@ public sealed class CollectionService : ICollectionService
         var normalizedSlug = SlugNormalizer.NormalizeBlockPath(slug);
         var policy = await RequireEditableAsync(key, normalizedSlug, user, cancellationToken);
 
-        var item = await _repository.GetBySlugAsync(policy.Key, normalizedSlug, includeArchived: true, cancellationToken)
-            ?? throw new NotFoundException($"Item '{policy.Key}/{normalizedSlug}' was not found.");
+        var item = await _repository.GetBySlugAsync(policy.Key, normalizedSlug, includeArchived: true, cancellationToken);
+
+        if (item is null)
+        {
+            await RequireNotAliasAsync(policy.Key, normalizedSlug, cancellationToken);
+            throw new NotFoundException($"Item '{policy.Key}/{normalizedSlug}' was not found.");
+        }
 
         item.Restore(updatedBy, DateTime.UtcNow);
         await _repository.SaveChangesAsync(cancellationToken);
@@ -326,7 +333,7 @@ public sealed class CollectionService : ICollectionService
         if (string.IsNullOrWhiteSpace(target))
             throw new ValidationException(["A new slug is required."]);
 
-        var item = (await FindWritableAsync(key, normalizedSlug, required: true, cancellationToken))!;
+        var item = (await FindWritableAsync(key, normalizedSlug, required: true, tolerateAlias: false, cancellationToken))!;
 
         RequireVersion(key, normalizedSlug, request.Version, item.Version);
 
@@ -336,7 +343,7 @@ public sealed class CollectionService : ICollectionService
         if (await _repository.GetBySlugAsync(key, target, includeArchived: true, cancellationToken) is not null)
             throw new ConflictException($"Slug '{target}' is already taken in '{key}'.", "taken", target);
 
-        await ClearAliasAsync(key, target, item.Id, replaceAlias, cancellationToken);
+        await ClearAliasAsync(key, target, item.Id, replaceAlias, AliasReason, cancellationToken);
 
         var utcNow = DateTime.UtcNow;
         item.Rename(target, updatedBy, utcNow);
@@ -374,7 +381,10 @@ public sealed class CollectionService : ICollectionService
             : await _repository.GetByIdAsync(key, alias.ItemId, includeArchived, cancellationToken);
     }
 
-    private async Task ClearAliasAsync(string key, string slug, Guid? ownerId, bool replaceAlias, CancellationToken cancellationToken)
+    private Task RequireNotAliasAsync(string key, string slug, CancellationToken cancellationToken)
+        => ClearAliasAsync(key, slug, ownerId: null, replaceAlias: false, MovedReason, cancellationToken);
+
+    private async Task ClearAliasAsync(string key, string slug, Guid? ownerId, bool replaceAlias, string reason, CancellationToken cancellationToken)
     {
         var alias = await _aliases.GetAsync(key, slug, cancellationToken);
 
@@ -384,12 +394,13 @@ public sealed class CollectionService : ICollectionService
         if (alias.ItemId != ownerId && !replaceAlias)
         {
             var owner = await _repository.GetByIdAsync(key, alias.ItemId, includeArchived: true, cancellationToken);
+            var where = owner is null ? "another item" : $"'{owner.Slug}'";
 
             throw new ConflictException(
-                owner is null
-                    ? $"Slug '{slug}' is an old address of another item in '{key}'. Retry with 'replaceAlias=true' to take it over."
-                    : $"Slug '{slug}' is an old address of '{owner.Slug}' in '{key}'. Retry with 'replaceAlias=true' to take it over.",
-                "alias",
+                reason == MovedReason
+                    ? $"Slug '{slug}' is an old address in '{key}'; the item now lives at {where}."
+                    : $"Slug '{slug}' is an old address of {where} in '{key}'. Retry with 'replaceAlias=true' to take it over.",
+                reason,
                 owner?.Slug);
         }
 
@@ -423,7 +434,7 @@ public sealed class CollectionService : ICollectionService
         if (!policy.CanEdit(user, normalizedSlug))
             throw new UnauthorizedAccessException($"User cannot edit '{key}/{normalizedSlug}'.");
 
-        await FindWritableAsync(key, normalizedSlug, required: false, cancellationToken);
+        await FindWritableAsync(key, normalizedSlug, required: false, tolerateAlias: false, cancellationToken);
 
         var validated = CollectionSchemaValidator.ValidateAndStrip(policy.Schema, request.Data, isDraft: true);
         await _drafts.SaveItemDraftAsync(key, normalizedSlug, userId, validated, cancellationToken);
@@ -518,12 +529,17 @@ public sealed class CollectionService : ICollectionService
             throw new NotFoundException($"Unknown collection '{policy.Key}'.");
     }
 
-    private async Task<CollectionItem?> FindWritableAsync(string key, string slug, bool required, CancellationToken cancellationToken)
+    private async Task<CollectionItem?> FindWritableAsync(string key, string slug, bool required, bool tolerateAlias, CancellationToken cancellationToken)
     {
         var item = await _repository.GetBySlugAsync(key, slug, includeArchived: true, cancellationToken);
 
         if (item is null)
+        {
+            if (!tolerateAlias)
+                await RequireNotAliasAsync(key, slug, cancellationToken);
+
             return required ? throw new NotFoundException($"Item '{key}/{slug}' was not found.") : null;
+        }
 
         if (item.IsArchived)
             throw new ArchivedException($"{key}/{slug}", item.Version);

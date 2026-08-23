@@ -132,18 +132,36 @@ A slug is fixed once the item exists unless the definition opts in:
 
 `PUT /cms/collections/{key}/{slug}/slug` with `{ "slug": "new-slug", "version": 4 }` renames and returns the item. `version` is required, exactly as it is for any other write to an existing item. The old slug is kept as an alias pointing at the item, and the caller's autosaved draft moves with it.
 
+Drafts belong to one editor each, so a rename moves only the renamer's own: the draft store is addressed by collection, slug and editor, and offers no way to enumerate the others holding one at that slug. Another editor's unsaved work stays at the old slug and expires there. They are not left guessing, though, because their next autosave writes to an address that is now an alias, which answers 409 naming the new slug, so a panel can repoint them without losing what they typed.
+
 | Situation | Result |
 |---|---|
 | The collection is not `editable` | 400 |
 | The caller cannot edit the item | 403 |
 | `version` is missing or stale | 409 |
+| The slug **in the path** is itself an old address | 409, `reason: "moved"` |
 | A live or archived item already holds the new slug | 409, `reason: "taken"` |
 | An alias of **another** item holds the new slug | 409, `reason: "alias"`; retry with `?replaceAlias=true` to take it over |
 | An alias of **this** item holds the new slug (renaming back) | the alias is dropped and the rename proceeds |
 
-Both slug conflicts carry `reason` and `conflictingSlug` so a panel can branch on the extension rather than on the sentence in `detail`, exactly as it already does for the archived 409. `conflictingSlug` is **the current address of the item standing in the way**, which for `taken` is the slug you asked for and for `alias` is somewhere else entirely: that second one is worth showing, because `?replaceAlias=true` breaks the inbound links of the item it names.
+Every slug conflict carries `reason` and `conflictingSlug` so a panel branches on the extension rather than on the sentence in `detail`, exactly as it already does for the archived 409. `conflictingSlug` is always **the current address of the item standing in the way**: for `taken` that is the slug you asked for, for `alias` it is the other item, and for `moved` it is the item you were trying to rename.
 
 Aliases are per collection and never chain: each one points straight at an item, so `a → b → c` leaves two aliases resolving directly to the item, not a chain to walk. A live item always wins, because a slug can never be a live slug and an alias at the same time: `POST` skips aliased slugs when it suffixes (`-2`, `-3`, …), and `PUT` onto an aliased slug answers 409 unless you pass `?replaceAlias=true`.
+
+**No write lands on an old address.** Every write whose **path** names a slug that is an alias answers **409** with `reason: "moved"` and `conflictingSlug` naming where the item lives now. That covers upsert, draft save, archive, restore and rename alike, so a stale tab or a hand-typed slug cannot create a second record at the old address, overwrite the wrong row, or autosave into a slot nobody will read.
+
+The two reasons say different things and a client acts on them differently:
+
+| `reason` | What is stale | What to do |
+|---|---|---|
+| `moved` | the slug in the **path**; `conflictingSlug` is where that item lives now | repoint to it and re-read, then let the user resubmit |
+| `alias` | the slug in the **rename body**, which is another item's old address; `conflictingSlug` is that other item | ask the user, then retry with `?replaceAlias=true` |
+
+Keeping them apart matters because acting on the wrong one is destructive: `?replaceAlias=true` sent to a path that is itself stale takes an address away from an item the caller never meant to touch.
+
+Refusing rather than following is deliberate. Following an alias on a write means writing to a record the caller did not name, and it leaves the caller holding a stale address forever because nothing ever tells it the address changed. The 409 carries the canonical slug precisely so a client can repoint itself.
+
+`DELETE /cms/collections/{key}/{slug}/draft` is the one write that still succeeds on an alias, because it deletes the caller's own draft at that address and that is exactly the cleanup a repointing client wants.
 
 `DELETE /cms/collections/{key}/{slug}/alias` drops an alias deliberately and frees the slug for reuse.
 
@@ -564,7 +582,8 @@ public interface ICollectionEnricher
 | A collection answers **404** for one tenant and works for another | its `clients` list does not name that tenant; the 404 is deliberate so the collection is not discoverable |
 | An editor with `content:write` gets **403** on a collection | an `access` predicate refused them; `collection show --key` prints the rule |
 | Renaming a slug answers **400** | the definition does not set `slug.editable`, or it is a `ClaimDerived` collection where the setting is not allowed |
-| Renaming answers **409** naming an alias | the target slug is held by an old address of another item; `?replaceAlias=true` takes it over |
+| A write answers **409** with `reason: "moved"` | the slug in the path is an old address; `conflictingSlug` says where the item lives now, repoint and re-read |
+| Renaming answers **409** with `reason: "alias"` | the target slug is held by an old address of another item; `?replaceAlias=true` takes it over |
 | The old URL still works after a rename | that is the alias doing its job; the response carries the canonical `slug` and a `Content-Location` header, and drop the alias with `DELETE …/alias` when you want the old address gone |
 | Editing a definition file changes nothing | the table is already seeded, so files are ignored; use `collection import --file` |
 | A collection is missing right after startup | on a fresh database with no definition files, nothing was seeded; import one |
