@@ -25,12 +25,18 @@ public static class CollectionDefinitionParser
     private static readonly Regex PlaceholderPattern = new(@"\{([^{}]*)\}", RegexOptions.Compiled);
     private static readonly Regex ResponsePathPattern = new(@"^[A-Za-z0-9_]+(\[\d+\])?(\.[A-Za-z0-9_]+(\[\d+\])?)*$", RegexOptions.Compiled);
 
-    private static readonly FieldType[] PlaceholderFieldTypes = [FieldType.ShortText, FieldType.LongText, FieldType.Url, FieldType.Number, FieldType.Bool, FieldType.Date];
+    private static readonly FieldType[] PlaceholderFieldTypes =
+        [FieldType.ShortText, FieldType.LongText, FieldType.Url, FieldType.Number, FieldType.Bool, FieldType.Date, FieldType.Select];
 
-    private static readonly FieldType[] SortableFieldTypes = [FieldType.ShortText, FieldType.Number, FieldType.Date];
+    private static readonly FieldType[] SortableFieldTypes = [FieldType.ShortText, FieldType.Number, FieldType.Date, FieldType.Select];
 
     private static readonly FieldType[] ComputedFieldTypes =
-        [FieldType.ShortText, FieldType.LongText, FieldType.RichText, FieldType.Url, FieldType.Bool, FieldType.Number, FieldType.Date, FieldType.StringArray, FieldType.Image];
+        [FieldType.ShortText, FieldType.LongText, FieldType.RichText, FieldType.Url, FieldType.Bool, FieldType.Number, FieldType.Date, FieldType.StringArray, FieldType.Image, FieldType.Link];
+
+    private static readonly FieldType[] ChoiceFieldTypes = [FieldType.Select, FieldType.StringArray];
+
+    private static readonly Dictionary<string, FieldType> FieldTypesByName =
+        Enum.GetValues<FieldType>().ToDictionary(type => type.ToString(), StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -596,17 +602,167 @@ public static class CollectionDefinitionParser
 
             fields.Add(new FieldDefinition(
                 document.Name!,
-                document.Type!.Value,
+                type!.Value,
                 string.IsNullOrWhiteSpace(document.Label) ? document.Name! : document.Label,
                 Required: document.Required,
                 Help: document.Help,
-                ReadOnly: document.ReadOnly,
+                ReadOnly: document.ReadOnly || mirror is not null,
+                Computed: mirror is not null,
                 Filterable: document.Filterable,
                 Sortable: document.Sortable,
-                Options: document.Options,
+                Source: source,
+                AllowCustom: document.AllowCustom,
+                From: mirror,
                 ItemFields: itemFields));
         }
 
+        if (errors.Count == errorsBefore)
+            ValidateMirrorTargets(fields, errors);
+
         return errors.Count == errorsBefore ? fields : null;
+    }
+
+    private static FieldMirror? BuildMirror(FieldDefinitionDocument document, FieldType? type, string fieldRef, List<string> errors)
+    {
+        if (document.From is not { } from)
+            return null;
+
+        var errorsBefore = errors.Count;
+
+        if (string.IsNullOrWhiteSpace(from.Field))
+            errors.Add($"{fieldRef}: 'from.field' is required; it names the reference this value is read through");
+
+        if (string.IsNullOrWhiteSpace(from.Path))
+            errors.Add($"{fieldRef}: 'from.path' is required; it names the field to read on the referenced item");
+        else if (!FieldNamePattern.IsMatch(from.Path))
+            errors.Add($"{fieldRef}: 'from.path' must be a plain field name of the referenced collection");
+
+        if (document.Source is not null)
+            errors.Add($"{fieldRef}: a field either offers choices ('source') or mirrors one ('from'), not both");
+
+        if (type is { } declared && !ComputedFieldTypes.Contains(declared))
+            errors.Add($"{fieldRef}: a mirrored field cannot be typed {declared}; only {string.Join(", ", ComputedFieldTypes)} can be read off a referenced item");
+
+        return errors.Count == errorsBefore ? new FieldMirror(from.Field!, from.Path!) : null;
+    }
+
+    private static void ValidateMirrorTargets(List<FieldDefinition> fields, List<string> errors)
+    {
+        foreach (var field in fields)
+        {
+            if (field.From is not { } mirror)
+                continue;
+
+            var fieldRef = $"field '{field.Name}'";
+            var target = fields.FirstOrDefault(candidate => string.Equals(candidate.Name, mirror.Field, StringComparison.OrdinalIgnoreCase));
+
+            if (target is null)
+            {
+                errors.Add($"{fieldRef}: 'from.field' references unknown field '{mirror.Field}'; a mirror follows a reference declared beside it, at the same level");
+                continue;
+            }
+
+            if (target.Source is not { Kind: ChoiceKind.Collection })
+            {
+                errors.Add($"{fieldRef}: 'from.field' must name a Select or StringArray field whose source is a collection; '{target.Name}' points at nothing to read from");
+                continue;
+            }
+
+            if (target.Type == FieldType.StringArray && field.Type != FieldType.StringArray)
+                errors.Add($"{fieldRef}: mirroring '{target.Name}' yields one value per reference, so the field must be typed StringArray, not {field.Type}");
+        }
+    }
+
+    private static FieldType? ResolveFieldType(string? value, string fieldRef, List<string> errors)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            errors.Add($"{fieldRef}: 'type' is required");
+            return null;
+        }
+
+        if (TryParseFieldType(value, out var type, out var error))
+            return type;
+
+        errors.Add($"{fieldRef}: {error}");
+        return null;
+    }
+
+    private static bool TryParseFieldType(string value, out FieldType type, out string error)
+    {
+        if (FieldTypesByName.TryGetValue(value, out type))
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        error = $"unknown field type '{value}'; expected one of {string.Join(", ", FieldTypesByName.Keys)}";
+        return false;
+    }
+
+    private static ChoiceSource? BuildChoiceSource(ChoiceSourceDocument? document, FieldType? type, string fieldRef, List<string> errors)
+    {
+        if (document is null)
+        {
+            if (type == FieldType.Select)
+                errors.Add($"{fieldRef}: a Select field needs a 'source'; a list with nothing in it cannot be chosen from");
+
+            return null;
+        }
+
+        if (type is { } declared && !ChoiceFieldTypes.Contains(declared))
+        {
+            errors.Add($"{fieldRef}: 'source' is only valid for Select and StringArray fields, not {declared}");
+            return null;
+        }
+
+        if (string.Equals(document.Kind, "static", StringComparison.OrdinalIgnoreCase))
+        {
+            if (document.Collection is not null)
+                errors.Add($"{fieldRef}: 'source.collection' is only valid when 'source.kind' is 'collection'");
+
+            return BuildStaticSource(document.Values, fieldRef, errors);
+        }
+
+        if (string.Equals(document.Kind, "collection", StringComparison.OrdinalIgnoreCase))
+        {
+            if (document.Values is not null)
+                errors.Add($"{fieldRef}: 'source.values' is only valid when 'source.kind' is 'static'");
+
+            if (string.IsNullOrWhiteSpace(document.Collection))
+                errors.Add($"{fieldRef}: 'source.collection' is required when 'source.kind' is 'collection'");
+            else if (!KeyPattern.IsMatch(document.Collection))
+                errors.Add($"{fieldRef}: 'source.collection' must be a collection key: lowercase alphanumerics separated by single hyphens");
+            else
+                return new ChoiceSource(ChoiceKind.Collection, Collection: document.Collection);
+
+            return null;
+        }
+
+        errors.Add($"{fieldRef}: 'source.kind' is required and must be 'static' or 'collection'");
+        return null;
+    }
+
+    private static ChoiceSource? BuildStaticSource(List<string>? values, string fieldRef, List<string> errors)
+    {
+        if (values is null || values.Count == 0)
+        {
+            errors.Add($"{fieldRef}: 'source.values' must list at least one choice when 'source.kind' is 'static'");
+            return null;
+        }
+
+        var choices = new List<string>(values.Count);
+
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                errors.Add($"{fieldRef}: 'source.values' entries must not be empty");
+            else if (choices.Contains(value, StringComparer.Ordinal))
+                errors.Add($"{fieldRef}: choice '{value}' is listed more than once");
+            else
+                choices.Add(value);
+        }
+
+        return choices.Count == values.Count ? new ChoiceSource(ChoiceKind.Static, choices) : null;
     }
 }

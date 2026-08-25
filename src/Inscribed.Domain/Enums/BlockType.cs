@@ -2,12 +2,16 @@ namespace Inscribed.Domain.Enums;
 
 public enum BlockType
 {
-    Text,
+    ShortText,
+    LongText,
     RichText,
+    Number,
+    Bool,
+    Url,
+    Date,
     Image,
     Link,
-    List,
-    Date,
-    ShortText,
-    LongText
+    Select,
+    StringArray,
+    ObjectArray
 }

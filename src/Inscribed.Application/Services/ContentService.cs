@@ -5,6 +5,7 @@ using Inscribed.Application.Contracts.Responses;
 using Inscribed.Application.Contracts.Services;
 using Inscribed.Application.Services.Helpers;
 using Inscribed.Domain.Entities;
+using Inscribed.Domain.Enums;
 using Inscribed.Domain.Exceptions;
 
 namespace Inscribed.Application.Services;
@@ -144,9 +145,10 @@ public sealed class ContentService : IContentService
 
         var targetLocales = locales.Count == 0 ? [null] : locales.Select(l => (string?)l).ToArray();
 
-        var desiredByKey = new Dictionary<(string? Locale, string Slug, string BlockPath), ManifestBlockItem>();
+        var desiredByKey = new Dictionary<(string? Locale, string Slug, string BlockPath), DesiredBlock>();
         var manifestPaths = new HashSet<(string Slug, string BlockPath)>();
         var requestSlugs = new HashSet<string>();
+        var unknownTypes = new List<string>();
 
         foreach (var manifest in manifests)
         {
@@ -156,12 +158,22 @@ public sealed class ContentService : IContentService
             foreach (var item in manifest.Blocks)
             {
                 var blockPath = SlugNormalizer.NormalizeBlockPath(item.BlockPath);
+
+                if (!TryParseBlockType(item.BlockType, out var blockType, out var typeError))
+                {
+                    unknownTypes.Add($"Block '{slug}/{blockPath}': {typeError}");
+                    continue;
+                }
+
                 manifestPaths.Add((slug, blockPath));
 
                 foreach (var locale in targetLocales)
-                    desiredByKey[(locale, slug, blockPath)] = item;
+                    desiredByKey[(locale, slug, blockPath)] = new DesiredBlock(blockType, item.DefaultValue, item.SortOrder);
             }
         }
+
+        if (unknownTypes.Count > 0)
+            throw new ValidationException(unknownTypes);
 
         var existing = await _repository.GetByClientAsync(clientId, includeArchived: true, cancellationToken: cancellationToken);
 
@@ -235,7 +247,7 @@ public sealed class ContentService : IContentService
                 slug,
                 blockPath,
                 item.BlockType,
-                item.DefaultValue,
+                item.Value,
                 item.SortOrder,
                 syncedBy,
                 utcNow
@@ -266,6 +278,40 @@ public sealed class ContentService : IContentService
         public readonly HashSet<string> Deleted = new(StringComparer.Ordinal);
         public readonly HashSet<string> Unchanged = new(StringComparer.Ordinal);
         public readonly HashSet<string> Restored = new(StringComparer.Ordinal);
+    }
+
+    private sealed record DesiredBlock(BlockType BlockType, JsonNode Value, int SortOrder);
+
+    private static readonly Dictionary<string, BlockType> BlockTypesByName =
+        Enum.GetValues<BlockType>().ToDictionary(type => type.ToString(), StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Dictionary<string, BlockType> RenamedBlockTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["List"] = BlockType.ObjectArray,
+        ["Text"] = BlockType.ShortText,
+    };
+
+    private static bool TryParseBlockType(string? value, out BlockType type, out string error)
+    {
+        type = default;
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            error = "'blockType' is required.";
+            return false;
+        }
+
+        if (BlockTypesByName.TryGetValue(value, out type))
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        error = RenamedBlockTypes.TryGetValue(value, out var replacement)
+            ? $"block type '{value}' is now '{replacement}'."
+            : $"unknown block type '{value}'; expected one of {string.Join(", ", BlockTypesByName.Keys)}.";
+
+        return false;
     }
 
     public async Task SaveDraftAsync(string clientId, string? locale, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default)

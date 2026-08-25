@@ -48,7 +48,7 @@ public sealed class EnrichmentDocument
 public sealed class MapTargetDocument
 {
     public string? Path { get; init; }
-    public FieldType? Type { get; init; }
+    public string? Type { get; init; }
     public string? Label { get; init; }
 }
 

@@ -12,6 +12,12 @@ public static class CollectionSchemaValidator
         new FieldDefinition("alt", FieldType.ShortText, "Alt", Required: true)
     ];
 
+    private static readonly IReadOnlyList<FieldDefinition> LinkFields =
+    [
+        new FieldDefinition("href", FieldType.Url, "Href", Required: true),
+        new FieldDefinition("label", FieldType.ShortText, "Label")
+    ];
+
     public static JsonObject ValidateAndStrip(CollectionSchema schema, JsonNode data, bool isDraft = false)
     {
         var errors = new List<string>();
@@ -63,6 +69,12 @@ public static class CollectionSchemaValidator
             if (field.Type == FieldType.Image)
             {
                 result[field.Name] = ValidateObject(ImageFields, value!, isDraft, errors, fieldPath);
+                continue;
+            }
+
+            if (field.Type == FieldType.Link)
+            {
+                result[field.Name] = ValidateObject(LinkFields, value!, isDraft, errors, fieldPath);
                 continue;
             }
 
