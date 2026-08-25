@@ -189,6 +189,37 @@ public static class CollectionDefinitionParser
             enrichments);
     }
 
+    private static string? BuildDisplayField(string? declared, List<FieldDefinition>? fields, List<string> errors)
+    {
+        if (declared is null)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(declared))
+        {
+            errors.Add("'displayField' must name a field; omit the property entirely to name items by their slug");
+            return null;
+        }
+
+        if (fields is null)
+            return null;
+
+        var field = fields.FirstOrDefault(candidate => string.Equals(candidate.Name, declared, StringComparison.OrdinalIgnoreCase));
+
+        if (field is null)
+        {
+            errors.Add($"'displayField' references unknown field '{declared}'");
+            return null;
+        }
+
+        if (field.Type is not FieldType.ShortText)
+        {
+            errors.Add($"'displayField' field '{declared}' must be of type ShortText, not {field.Type}; it is the one line that names a record wherever it is referenced");
+            return null;
+        }
+
+        return field.Name;
+    }
+
     private static List<string> BuildClients(List<string>? documents, List<string> errors)
     {
         if (documents is null)
@@ -584,17 +615,25 @@ public static class CollectionDefinitionParser
             else if (!names.Add(document.Name))
                 errors.Add($"{fieldRef}: duplicate field name");
 
-            if (document.Type is null)
-                errors.Add($"{fieldRef}: 'type' is required");
+            var type = ResolveFieldType(document.Type, fieldRef, errors);
 
             List<FieldDefinition>? itemFields = null;
 
-            if (document.Type == FieldType.ObjectArray)
+            if (type == FieldType.ObjectArray)
                 itemFields = BuildFields(document.ItemFields, $"{path}[{i}].itemFields", errors);
-            else if (document.ItemFields is not null)
+            else if (type is not null && document.ItemFields is not null)
                 errors.Add($"{fieldRef}: 'itemFields' is only valid for ObjectArray fields");
 
-            if (document.Sortable && document.Type is { } sortableType && !SortableFieldTypes.Contains(sortableType))
+            var source = BuildChoiceSource(document.Source, type, fieldRef, errors);
+            var mirror = BuildMirror(document, type, fieldRef, errors);
+
+            if (document.Options is not null)
+                errors.Add($"{fieldRef}: 'options' is gone; a Select or StringArray field carries its choices in 'source': {{ \"kind\": \"static\", \"values\": [...] }}");
+
+            if (document.AllowCustom && type is { } customType && !ChoiceFieldTypes.Contains(customType))
+                errors.Add($"{fieldRef}: 'allowCustom' is only valid for Select and StringArray fields; nothing else offers choices to depart from");
+
+            if (document.Sortable && type is { } sortableType && !SortableFieldTypes.Contains(sortableType))
                 errors.Add($"{fieldRef}: '{sortableType}' fields cannot be sortable; only {string.Join(", ", SortableFieldTypes)} order predictably");
 
             if (errors.Count > fieldErrorsBefore)

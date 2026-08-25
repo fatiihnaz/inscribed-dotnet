@@ -156,6 +156,9 @@ public static class CollectionSchemaValidator
                 {
                     if (item is not JsonValue iv || iv.GetValueKind() != System.Text.Json.JsonValueKind.String)
                     { error = "expected array of strings."; return false; }
+
+                    if (!IsAllowedChoice(iv.GetValue<string>(), field, out error))
+                        return false;
                 }
                 return true;
 
@@ -163,5 +166,19 @@ public static class CollectionSchemaValidator
                 error = $"unsupported type {field.Type}.";
                 return false;
         }
+    }
+
+    private static bool IsAllowedChoice(string value, FieldDefinition field, out string error)
+    {
+        error = string.Empty;
+
+        if (field.AllowCustom || field.Source is not { Kind: ChoiceKind.Static, Values: { Count: > 0 } choices })
+            return true;
+
+        if (choices.Contains(value, StringComparer.Ordinal))
+            return true;
+
+        error = $"'{value}' is not one of the choices ({string.Join(", ", choices)}).";
+        return false;
     }
 }
