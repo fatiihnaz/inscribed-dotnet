@@ -6,8 +6,7 @@ using Inscribed.Application;
 using Inscribed.Application.Services.Policies;
 using Inscribed.Auth;
 using Inscribed.Auth.Authorization;
-using Inscribed.Auth.Endpoints;
-using Inscribed.Auth.Services;
+using Inscribed.Auth.Issuer;
 using Inscribed.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddInscribedAuth(builder.Configuration);
+builder.Services.AddInscribedAuthIssuer(builder.Configuration);
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("ContentRead", policy =>
@@ -76,9 +76,11 @@ using (var scope = app.Services.CreateScope())
     else
         DatabaseMigrator.EnsureUpToDate(scope.ServiceProvider);
 
-    scope.ServiceProvider.ValidateInscribedTokenIssuance();
-    scope.ServiceProvider.GetRequiredService<ISigningKeyStore>().GetPublicJwks();
-    scope.ServiceProvider.SeedInscribedAuth();
+    foreach (var module in scope.ServiceProvider.GetServices<IAuthIssuerModule>())
+    {
+        await module.InitializeAsync(scope.ServiceProvider);
+    }
+
     scope.ServiceProvider.SeedInscribedClients();
 
     await scope.ServiceProvider.GetRequiredService<CollectionSeeder>().SeedAsync();

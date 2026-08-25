@@ -6,6 +6,7 @@ COPY src/Inscribed.Domain/Inscribed.Domain.csproj              src/Inscribed.Dom
 COPY src/Inscribed.Application/Inscribed.Application.csproj    src/Inscribed.Application/
 COPY src/Inscribed.Infrastructure/Inscribed.Infrastructure.csproj src/Inscribed.Infrastructure/
 COPY src/Inscribed.Auth/Inscribed.Auth.csproj                  src/Inscribed.Auth/
+COPY src/Inscribed.Auth.Issuer/Inscribed.Auth.Issuer.csproj    src/Inscribed.Auth.Issuer/
 COPY src/Inscribed.Api/Inscribed.Api.csproj                    src/Inscribed.Api/
 COPY src/Inscribed.Cli/Inscribed.Cli.csproj                    src/Inscribed.Cli/
 

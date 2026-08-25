@@ -1,5 +1,5 @@
 using Inscribed.Application.Services;
-using Inscribed.Auth.Services;
+using Inscribed.Auth.Issuer.Services;
 
 namespace Inscribed.Api.Endpoints;
 
@@ -15,9 +15,23 @@ public static class ClientEndpoints
             return Results.Ok(all);
         });
 
-        group.MapGet("/{key}", async (string key, IClientService clients, IAdminService admin, CancellationToken ct) =>
+        group.MapGet("/{key}", async (string key, IClientService clients, IServiceProvider services, CancellationToken ct) =>
         {
             var client = await clients.GetAsync(key, ct);
+
+            if (services.GetService<IAdminService>() is not { } admin)
+            {
+                return Results.Ok(new
+                {
+                    client.Id,
+                    client.Key,
+                    client.Locales,
+                    client.AllowAnonymousContentRead,
+                    client.IsActive,
+                    client.CreatedAt,
+                });
+            }
+
             var identity = await admin.GetClientAsync(key, ct);
 
             return Results.Ok(new

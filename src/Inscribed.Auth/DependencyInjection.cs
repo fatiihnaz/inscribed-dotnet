@@ -1,16 +1,13 @@
-﻿using Inscribed.Application.Contracts.Identity;
+using Inscribed.Application.Contracts.Identity;
 using Inscribed.Auth.Authentication;
 using Inscribed.Auth.Authorization;
+using Inscribed.Auth.Identity;
 using Inscribed.Auth.Options;
-using Inscribed.Auth.Services;
-using Inscribed.Auth.Storage;
-using Inscribed.Auth.Storage.Repositories;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace Inscribed.Auth;
@@ -22,61 +19,43 @@ public static class DependencyInjection
         services.AddOptions<AuthOptions>()
             .Bind(configuration.GetSection("Auth"));
 
-        var connectionString = configuration.GetConnectionString("Default")
-            ?? throw new InvalidOperationException("ConnectionStrings:Default is not configured.");
-
-        services.AddDbContext<AuthDbContext>(options =>
-            options.UseNpgsql(connectionString, npgsql =>
-            {
-                npgsql.MigrationsAssembly(typeof(AuthDbContext).Assembly.FullName);
-                npgsql.MigrationsHistoryTable("__ef_migrations_history_auth");
-            }));
-
-        services.AddSingleton<ISigningKeyStore, SigningKeyStore>();
-        services.AddSingleton<IJwtIssuer, JwtIssuer>();
         services.AddSingleton<IAdministratorPolicy, CapabilityAdministratorPolicy>();
         services.AddSingleton<IPrincipalTenant, ClaimPrincipalTenant>();
+        services.TryAddScoped<IClientIdentityStore, NullClientIdentityStore>();
 
-        services.AddHttpClient();
-        services.AddScoped<IUserRepository, UserRepository>();
-        services.AddScoped<IClientIdentityRepository, ClientIdentityRepository>();
-        services.AddScoped<IClientIdentityStore, AuthClientIdentityStore>();
-        services.AddScoped<IMembershipRepository, MembershipRepository>();
-        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
-        services.AddScoped<IGoogleOAuthClient, GoogleOAuthClient>();
-        services.AddScoped<IGoogleLoginService, GoogleLoginService>();
-        services.AddScoped<IRefreshTokenService, RefreshTokenService>();
-        services.AddScoped<IServiceKeyRepository, ServiceKeyRepository>();
-        services.AddScoped<IServiceKeyService, ServiceKeyService>();
-        services.AddScoped<IAdminService, AdminService>();
+        services.AddSingleton<IConfigureOptions<JwtBearerOptions>>(provider =>
+            new ConfigureJwtBearerOptions(
+                provider.GetRequiredService<IOptions<AuthOptions>>(),
+                provider.GetService<ITokenValidationKeySource>()));
 
-        services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
         services.AddAuthentication(InscribedAuthSchemes.PolicyScheme)
             .AddPolicyScheme(InscribedAuthSchemes.PolicyScheme, InscribedAuthSchemes.PolicyScheme, options =>
             {
                 options.ForwardDefaultSelector = context =>
-                    ServiceTokenLocator.Locate(context.Request) is null
-                        ? JwtBearerDefaults.AuthenticationScheme
-                        : InscribedAuthSchemes.ServiceToken;
+                {
+                    foreach (var selector in context.RequestServices.GetServices<IAuthenticationSchemeSelector>())
+                    {
+                        if (selector.Select(context.Request) is { } scheme)
+                        {
+                            return scheme;
+                        }
+                    }
+
+                    return JwtBearerDefaults.AuthenticationScheme;
+                };
             })
-            .AddJwtBearer()
-            .AddScheme<AuthenticationSchemeOptions, ServiceTokenAuthenticationHandler>(InscribedAuthSchemes.ServiceToken, null);
+            .AddJwtBearer();
 
         return services;
     }
 
-    public static IServiceProvider ValidateInscribedTokenIssuance(this IServiceProvider services)
+    public static IEndpointRouteBuilder MapInscribedAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        var options = services.GetRequiredService<IOptions<AuthOptions>>().Value;
-        var environment = services.GetRequiredService<IHostEnvironment>();
-
-        if (environment.IsProduction()
-            && (string.IsNullOrWhiteSpace(options.Issuer)
-                || options.Issuer.Contains("localhost", StringComparison.OrdinalIgnoreCase)))
+        foreach (var module in app.ServiceProvider.GetServices<IAuthIssuerModule>())
         {
-            throw new InvalidOperationException("Auth:Issuer must be set to the public URL in Production.");
+            module.MapEndpoints(app);
         }
 
-        return services;
+        return app;
     }
 }

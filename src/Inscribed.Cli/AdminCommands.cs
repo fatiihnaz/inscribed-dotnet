@@ -2,8 +2,8 @@ using System.Text;
 using Inscribed.Application.Services;
 using Inscribed.Auth.Authorization;
 using Microsoft.Extensions.DependencyInjection;
-using Inscribed.Auth.Entities;
-using Inscribed.Auth.Services;
+using Inscribed.Auth.Issuer.Entities;
+using Inscribed.Auth.Issuer.Services;
 using Inscribed.Domain.Exceptions;
 
 namespace Inscribed.Cli;

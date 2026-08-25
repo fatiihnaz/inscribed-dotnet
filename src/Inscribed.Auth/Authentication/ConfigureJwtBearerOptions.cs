@@ -1,6 +1,5 @@
 using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Options;
-using Inscribed.Auth.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -9,17 +8,21 @@ namespace Inscribed.Auth.Authentication;
 
 internal sealed class ConfigureJwtBearerOptions : IConfigureNamedOptions<JwtBearerOptions>
 {
-    private readonly ISigningKeyStore _keys;
+    private readonly ITokenValidationKeySource? _keys;
     private readonly AuthOptions _options;
 
-    public ConfigureJwtBearerOptions(ISigningKeyStore keys, IOptions<AuthOptions> options)
+    public ConfigureJwtBearerOptions(IOptions<AuthOptions> options, ITokenValidationKeySource? keys)
     {
-        _keys = keys;
         _options = options.Value;
+        _keys = keys;
     }
 
     public void Configure(JwtBearerOptions options)
     {
+        var keys = _keys ?? throw new InvalidOperationException(
+            "No ITokenValidationKeySource is registered, so incoming tokens cannot be verified. "
+            + "Register the bundled issuer with AddInscribedAuthIssuer().");
+
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -32,7 +35,7 @@ internal sealed class ConfigureJwtBearerOptions : IConfigureNamedOptions<JwtBear
             ValidateIssuerSigningKey = true,
             NameClaimType = "name",
             RoleClaimType = CapabilityCatalog.RolesClaim,
-            IssuerSigningKeyResolver = (_, _, kid, _) => _keys.GetValidationKeys(kid),
+            IssuerSigningKeyResolver = (_, _, kid, _) => keys.Resolve(kid),
         };
     }
 

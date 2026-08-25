@@ -1,5 +1,6 @@
 using Inscribed.Application;
 using Inscribed.Auth;
+using Inscribed.Auth.Issuer;
 using Inscribed.Cli;
 using Inscribed.Infrastructure;
 using Inscribed.Domain.Exceptions;
@@ -41,6 +42,7 @@ static async Task<int> RunAsync(string[] args)
     builder.Services.AddInfrastructureStorage(builder.Configuration);
     builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddInscribedAuth(builder.Configuration);
+    builder.Services.AddInscribedAuthIssuer(builder.Configuration);
 
     using var host = builder.Build();
 

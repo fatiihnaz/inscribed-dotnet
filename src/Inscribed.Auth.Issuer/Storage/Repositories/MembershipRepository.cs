@@ -1,0 +1,40 @@
+using Inscribed.Auth.Issuer.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace Inscribed.Auth.Issuer.Storage.Repositories;
+
+public interface IMembershipRepository
+{
+    Task<Membership?> GetAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default);
+    Task<int> CountByClientAsync(Guid clientId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Membership>> GetByClientAsync(Guid clientId, CancellationToken cancellationToken = default);
+    void Add(Membership membership);
+    void Remove(Membership membership);
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+internal sealed class MembershipRepository : IMembershipRepository
+{
+    private readonly AuthDbContext _context;
+
+    public MembershipRepository(AuthDbContext context)
+    {
+        _context = context;
+    }
+
+    public Task<Membership?> GetAsync(Guid userId, Guid clientId, CancellationToken cancellationToken = default) =>
+        _context.Memberships.FirstOrDefaultAsync(x => x.UserId == userId && x.ClientId == clientId, cancellationToken);
+
+    public Task<int> CountByClientAsync(Guid clientId, CancellationToken cancellationToken = default) =>
+        _context.Memberships.CountAsync(x => x.ClientId == clientId, cancellationToken);
+
+    public async Task<IReadOnlyList<Membership>> GetByClientAsync(Guid clientId, CancellationToken cancellationToken = default) =>
+        await _context.Memberships.Where(x => x.ClientId == clientId).ToListAsync(cancellationToken);
+
+    public void Add(Membership membership) => _context.Memberships.Add(membership);
+
+    public void Remove(Membership membership) => _context.Memberships.Remove(membership);
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        _context.SaveChangesAsync(cancellationToken);
+}

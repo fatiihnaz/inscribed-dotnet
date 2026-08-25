@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Inscribed.Auth.Storage;
+using Inscribed.Auth;
 using Inscribed.Infrastructure.Storage;
 
 namespace Inscribed.Api.Startup;
@@ -9,13 +9,21 @@ internal static class DatabaseMigrator
     public static void MigrateAll(IServiceProvider services)
     {
         services.GetRequiredService<CmsDbContext>().Database.Migrate();
-        services.GetRequiredService<AuthDbContext>().Database.Migrate();
+
+        foreach (var module in services.GetServices<IAuthIssuerModule>())
+        {
+            module.Migrate(services);
+        }
     }
 
     public static void EnsureUpToDate(IServiceProvider services)
     {
         EnsureContextUpToDate(services.GetRequiredService<CmsDbContext>(), nameof(CmsDbContext));
-        EnsureContextUpToDate(services.GetRequiredService<AuthDbContext>(), nameof(AuthDbContext));
+
+        foreach (var module in services.GetServices<IAuthIssuerModule>())
+        {
+            module.EnsureUpToDate(services);
+        }
     }
 
     private static void EnsureContextUpToDate(DbContext db, string name)

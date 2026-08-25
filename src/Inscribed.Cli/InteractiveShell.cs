@@ -1,7 +1,7 @@
 using System.Text;
 using Inscribed.Application.Services;
 using Inscribed.Auth.Authorization;
-using Inscribed.Auth.Services;
+using Inscribed.Auth.Issuer.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Inscribed.Cli;
