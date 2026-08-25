@@ -17,6 +17,7 @@ namespace Inscribed.Application.Services;
 public sealed class CollectionService : ICollectionService
 {
     private const int EnrichmentParallelism = 8;
+    private const int MaxLookupSlugs = 100;
     private const string MovedReason = "moved";
     private const string AliasReason = "alias";
 
@@ -113,7 +114,7 @@ public sealed class CollectionService : ICollectionService
 
         var (items, total) = await _repository.ListPagedAsync(key, locale, filterJson, order, archived, offset, limit, cancellationToken);
 
-        var enriched = await EnrichAllAsync(policy, items, cancellationToken);
+        var enriched = await EnrichAllAsync(policy, items, locale, cancellationToken);
 
         var drafts = publishedOnly
             ? []
@@ -197,7 +198,7 @@ public sealed class CollectionService : ICollectionService
         item = await ResolveLocaleSiblingAsync(policy, item, requestedLocale, cancellationToken);
         if (item is null) return null;
 
-        var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
         var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
 
         if (!isEditor)
@@ -218,7 +219,7 @@ public sealed class CollectionService : ICollectionService
         if (!policy.OwnsVirtualSlug(user, normalizedSlug))
             return null;
 
-        var data = await policy.EnrichAsync(normalizedSlug, new JsonObject(), cancellationToken);
+        var data = await ProjectAsync(policy, normalizedSlug, new JsonObject(), locale: null, cancellationToken);
         var draft = await _drafts.GetItemDraftAsync(policy.Key, normalizedSlug, userId, cancellationToken);
 
         return new VirtualItemResponse(
@@ -279,7 +280,7 @@ public sealed class CollectionService : ICollectionService
         if (created)
             await _drafts.DeletePendingDraftAsync(key, createdLocale, updatedBy, cancellationToken);
 
-        var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
         var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
@@ -316,7 +317,7 @@ public sealed class CollectionService : ICollectionService
 
         await _drafts.DeletePendingDraftAsync(key, locale, updatedBy, cancellationToken);
 
-        var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
         var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
@@ -334,7 +335,51 @@ public sealed class CollectionService : ICollectionService
         await _repository.SaveChangesAsync(cancellationToken);
         await _drafts.DeleteItemDraftAsync(policy.Key, normalizedSlug, updatedBy, cancellationToken);
 
-        return new ArchiveResponse(policy.Key, normalizedSlug, item.Version);
+        var references = await CountReferencesAsync(policy.Key, normalizedSlug, cancellationToken);
+
+        return new ArchiveResponse(policy.Key, normalizedSlug, item.Version, references);
+    }
+
+    private async Task<int> CountReferencesAsync(string key, string slug, CancellationToken cancellationToken)
+    {
+        var total = 0;
+
+        foreach (var policy in await _policyResolver.AllAsync(cancellationToken))
+        {
+            foreach (var containment in ReferenceContainments(policy.Schema.Fields, key, slug))
+                total += await _repository.CountByContainmentAsync(policy.Key, containment, cancellationToken);
+        }
+
+        return total;
+    }
+
+    private static List<JsonObject> ReferenceContainments(IReadOnlyList<FieldDefinition> fields, string key, string slug)
+    {
+        var found = new List<JsonObject>();
+
+        foreach (var field in fields)
+        {
+            if (field.Type == FieldType.ObjectArray)
+            {
+                foreach (var inner in ReferenceContainments(field.ItemFields ?? [], key, slug))
+                    found.Add(new JsonObject { [field.Name] = new JsonArray(inner) });
+
+                continue;
+            }
+
+            if (field.Source is not { Kind: ChoiceKind.Collection } source
+                || !string.Equals(source.Collection, key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            found.Add(new JsonObject
+            {
+                [field.Name] = field.Type == FieldType.StringArray ? new JsonArray(JsonValue.Create(slug)) : JsonValue.Create(slug)
+            });
+        }
+
+        return found;
     }
 
     public async Task<CollectionItemResponse> RestoreAsync(string key, string slug, ClaimsPrincipal user, string updatedBy, CancellationToken cancellationToken = default)
@@ -353,7 +398,7 @@ public sealed class CollectionService : ICollectionService
         item.Restore(updatedBy, DateTime.UtcNow);
         await _repository.SaveChangesAsync(cancellationToken);
 
-        var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
         var translations = await LoadTranslationsAsync(policy.Key, item, policy.Locales, cancellationToken);
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
@@ -458,7 +503,7 @@ public sealed class CollectionService : ICollectionService
 
     private async Task<CollectionItemResponse> BuildRenameResponseAsync(ICollectionPolicy policy, CollectionItem item, CancellationToken cancellationToken)
     {
-        var enriched = await policy.EnrichAsync(item.Slug, item.Data, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
         var translations = await LoadTranslationsAsync(policy.Key, item, policy.Locales, cancellationToken);
 
         return ToResponse(item, enriched, canEdit: true, translations: translations);
@@ -586,7 +631,7 @@ public sealed class CollectionService : ICollectionService
         return item;
     }
 
-    private async Task<JsonNode[]> EnrichAllAsync(ICollectionPolicy policy, IReadOnlyList<CollectionItem> items, CancellationToken cancellationToken)
+    private async Task<JsonNode[]> EnrichAllAsync(ICollectionPolicy policy, IReadOnlyList<CollectionItem> items, string? locale, CancellationToken cancellationToken)
     {
         var enriched = new JsonNode[items.Count];
 
@@ -595,8 +640,193 @@ public sealed class CollectionService : ICollectionService
             new ParallelOptions { MaxDegreeOfParallelism = EnrichmentParallelism, CancellationToken = cancellationToken },
             async (index, token) => enriched[index] = await policy.EnrichAsync(items[index].Slug, items[index].Data, token));
 
-        return enriched;
+        return await MirrorAllAsync(policy, enriched, locale, cancellationToken);
     }
+
+    private async Task<JsonNode> ProjectAsync(ICollectionPolicy policy, string slug, JsonNode data, string? locale, CancellationToken cancellationToken)
+    {
+        var enriched = await policy.EnrichAsync(slug, data, cancellationToken);
+        return (await MirrorAllAsync(policy, [enriched], locale, cancellationToken))[0];
+    }
+
+    private async Task<JsonNode[]> MirrorAllAsync(ICollectionPolicy policy, JsonNode[] nodes, string? locale, CancellationToken cancellationToken)
+    {
+        if (nodes.Length == 0 || BuildMirrorLevel(policy.Schema.Fields) is not { } level)
+            return nodes;
+
+        var wanted = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var mirrored = new JsonNode[nodes.Length];
+
+        for (var index = 0; index < nodes.Length; index++)
+        {
+            mirrored[index] = nodes[index].DeepClone();
+            CollectReferences(level, mirrored[index], wanted);
+        }
+
+        var targets = await LoadMirrorTargetsAsync(wanted, locale, cancellationToken);
+
+        foreach (var node in mirrored)
+            WriteMirrors(level, node, targets);
+
+        return mirrored;
+    }
+
+    private async Task<Dictionary<(string Collection, string Slug), JsonNode>> LoadMirrorTargetsAsync(
+        Dictionary<string, HashSet<string>> wanted,
+        string? locale,
+        CancellationToken cancellationToken)
+    {
+        var targets = new Dictionary<(string, string), JsonNode>();
+
+        foreach (var (collection, slugs) in wanted)
+        {
+            var rows = (await _repository.GetBySlugsAsync(collection, slugs, cancellationToken))
+                .Where(row => !row.IsArchived)
+                .ToList();
+
+            var siblings = await LoadMirrorSiblingsAsync(collection, rows, locale, cancellationToken);
+
+            foreach (var row in rows)
+                targets[(collection, row.Slug)] = siblings.GetValueOrDefault(row.TranslationGroupId)?.Data ?? row.Data;
+        }
+
+        return targets;
+    }
+
+    private async Task<Dictionary<Guid, CollectionItem>> LoadMirrorSiblingsAsync(
+        string collection,
+        List<CollectionItem> rows,
+        string? locale,
+        CancellationToken cancellationToken)
+    {
+        if (locale is null)
+            return [];
+
+        var groups = rows
+            .Where(row => row.Locale is not null && !string.Equals(row.Locale, locale, StringComparison.Ordinal))
+            .Select(row => row.TranslationGroupId)
+            .Distinct()
+            .ToList();
+
+        if (groups.Count == 0)
+            return [];
+
+        var siblings = await _repository.GetByTranslationGroupsAsync(collection, groups, cancellationToken);
+
+        return siblings
+            .Where(sibling => string.Equals(sibling.Locale, locale, StringComparison.Ordinal))
+            .GroupBy(sibling => sibling.TranslationGroupId)
+            .ToDictionary(group => group.Key, group => group.First());
+    }
+
+    private static MirrorLevel? BuildMirrorLevel(IReadOnlyList<FieldDefinition> fields)
+    {
+        List<MirrorPlan>? mirrors = null;
+        List<(string Field, MirrorLevel Level)>? objectArrays = null;
+
+        foreach (var field in fields)
+        {
+            if (field.Type == FieldType.ObjectArray)
+            {
+                if (field.ItemFields is { } itemFields && BuildMirrorLevel(itemFields) is { } nested)
+                    (objectArrays ??= []).Add((field.Name, nested));
+
+                continue;
+            }
+
+            if (field.From is not { } mirror)
+                continue;
+
+            var reference = fields.FirstOrDefault(candidate => string.Equals(candidate.Name, mirror.Field, StringComparison.OrdinalIgnoreCase));
+
+            if (reference?.Source is { Kind: ChoiceKind.Collection, Collection: { } collection })
+                (mirrors ??= []).Add(new MirrorPlan(field.Name, reference.Name, reference.Type == FieldType.StringArray, collection, mirror.Path));
+        }
+
+        return mirrors is null && objectArrays is null ? null : new MirrorLevel(mirrors ?? [], objectArrays ?? []);
+    }
+
+    private static void CollectReferences(MirrorLevel level, JsonNode? node, Dictionary<string, HashSet<string>> wanted)
+    {
+        if (node is not JsonObject item)
+            return;
+
+        foreach (var plan in level.Mirrors)
+        {
+            if (!wanted.TryGetValue(plan.Collection, out var slugs))
+                wanted[plan.Collection] = slugs = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var slug in ReferencedSlugs(item, plan))
+                slugs.Add(slug);
+        }
+
+        foreach (var (field, nested) in level.ObjectArrays)
+        {
+            if (item[field] is not JsonArray rows)
+                continue;
+
+            foreach (var row in rows)
+                CollectReferences(nested, row, wanted);
+        }
+    }
+
+    private static void WriteMirrors(MirrorLevel level, JsonNode? node, Dictionary<(string, string), JsonNode> targets)
+    {
+        if (node is not JsonObject item)
+            return;
+
+        foreach (var plan in level.Mirrors)
+        {
+            if (plan.Many)
+            {
+                var values = new JsonArray();
+
+                foreach (var slug in ReferencedSlugs(item, plan))
+                {
+                    if (ReadTarget(targets, plan, slug) is { } value)
+                        values.Add(value);
+                }
+
+                item[plan.Field] = values;
+                continue;
+            }
+
+            item[plan.Field] = ReferencedSlugs(item, plan).FirstOrDefault() is { } single
+                ? ReadTarget(targets, plan, single)
+                : null;
+        }
+
+        foreach (var (field, nested) in level.ObjectArrays)
+        {
+            if (item[field] is not JsonArray rows)
+                continue;
+
+            foreach (var row in rows)
+                WriteMirrors(nested, row, targets);
+        }
+    }
+
+    private static IEnumerable<string> ReferencedSlugs(JsonObject item, MirrorPlan plan)
+    {
+        var value = item[plan.Reference];
+
+        var candidates = plan.Many
+            ? (value as JsonArray)?.AsEnumerable() ?? []
+            : [value];
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate is JsonValue slug && slug.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text))
+                yield return text;
+        }
+    }
+
+    private static JsonNode? ReadTarget(Dictionary<(string, string), JsonNode> targets, MirrorPlan plan, string slug)
+        => targets.TryGetValue((plan.Collection, slug), out var data) && data[plan.Path] is { } value ? value.DeepClone() : null;
+
+    private sealed record MirrorPlan(string Field, string Reference, bool Many, string Collection, string Path);
+
+    private sealed record MirrorLevel(IReadOnlyList<MirrorPlan> Mirrors, IReadOnlyList<(string Field, MirrorLevel Level)> ObjectArrays);
 
     private async Task<IReadOnlyList<CollectionItem>> RequireTranslationGroupAsync(string key, Guid translationGroupId, CancellationToken cancellationToken)
     {
@@ -758,6 +988,8 @@ public sealed class CollectionService : ICollectionService
                 if (row is null)
                     drafts[index] = (await _drafts.GetItemDraftAsync(policy.Key, slug, userId, token))?.Data;
             });
+
+        enriched = await MirrorAllAsync(policy, enriched, locale, cancellationToken);
 
         for (var index = 0; index < offered.Count; index++)
         {

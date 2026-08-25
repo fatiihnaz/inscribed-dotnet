@@ -12,6 +12,7 @@ public sealed class CollectionDefinitionDocument
     public AccessDocument? Access { get; init; }
     public List<string>? Locales { get; init; }
     public SlugDefinitionDocument? Slug { get; init; }
+    public string? DisplayField { get; init; }
     public List<FieldDefinitionDocument>? Fields { get; init; }
     public List<EnrichmentDocument>? Enrich { get; init; }
 }

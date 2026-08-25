@@ -128,9 +128,12 @@ public static class CollectionSchemaValidator
             case FieldType.Url:
                 if (value is not JsonValue tv || tv.GetValueKind() != System.Text.Json.JsonValueKind.String)
                 { error = "expected string."; return false; }
-                if (field.Options is { Count: > 0 } && !field.Options.Contains(tv.GetValue<string>()))
-                { error = "value not in allowed options."; return false; }
                 return true;
+
+            case FieldType.Select:
+                if (value is not JsonValue sv || sv.GetValueKind() != System.Text.Json.JsonValueKind.String)
+                { error = "expected string."; return false; }
+                return IsAllowedChoice(sv.GetValue<string>(), field, out error);
 
             case FieldType.Bool:
                 if (value is not JsonValue bv ||

@@ -182,6 +182,7 @@ public static class CollectionDefinitionParser
             slugSourceField,
             claimSlug,
             slugEditable,
+            displayField,
             document.AllowAnonymousRead,
             clients,
             access,
@@ -567,13 +568,19 @@ public static class CollectionDefinitionParser
 
             if (document?.Type is { } declared)
             {
-                if (!ComputedFieldTypes.Contains(declared))
+                if (!TryParseFieldType(declared, out var parsed, out var error))
                 {
-                    errors.Add($"{entryRef}: map target '{target}' cannot be typed {declared}; a map entry has no way to describe its item shape");
+                    errors.Add($"{entryRef}: map target '{target}': {error}");
                     return null;
                 }
 
-                type = declared;
+                if (!ComputedFieldTypes.Contains(parsed))
+                {
+                    errors.Add($"{entryRef}: map target '{target}' cannot be typed {parsed}; a map entry has no way to describe its item shape or where its choices come from");
+                    return null;
+                }
+
+                type = parsed;
             }
         }
         else
