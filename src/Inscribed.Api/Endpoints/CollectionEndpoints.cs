@@ -10,6 +10,8 @@ public static class CollectionEndpoints
 {
     private const int PublicReadMaxAgeSeconds = 60;
     private const int PublicReadStaleSeconds = 300;
+    private const int DefaultLookupLimit = 20;
+    private const int MaxLookupLimit = 100;
 
     private static readonly HashSet<string> ReservedQueryKeys =
         new(StringComparer.OrdinalIgnoreCase) { "offset", "limit", "locale", "sort", "archived" };
@@ -58,6 +60,21 @@ public static class CollectionEndpoints
                 .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
 
             var result = await service.ListAsync(key, locale, context.User, userId, filters, sort, archived, offset, limit, ct);
+            return Results.Ok(result);
+        }).AllowAnonymous();
+
+        group.MapGet("/lookup", async (string key, string? q, string? slugs, string? locale, int? limit, HttpContext context, ICollectionService service, IAuthorizationService authorization, CancellationToken ct) =>
+        {
+            var isPublic = await service.AllowsAnonymousReadAsync(key, ct);
+            var (canRead, isEditor) = await ResolveReadAccessAsync(authorization, context);
+            if (!canRead && !isPublic)
+                return Results.Unauthorized();
+
+            ApplyReadCacheHeaders(context, isEditor, isPublic);
+
+            var wanted = slugs?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var result = await service.LookupAsync(key, q, wanted, locale, context.User, Math.Clamp(limit ?? DefaultLookupLimit, 1, MaxLookupLimit), ct);
+
             return Results.Ok(result);
         }).AllowAnonymous();
 

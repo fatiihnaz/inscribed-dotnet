@@ -51,6 +51,7 @@ public sealed class CollectionService : ICollectionService
             Schema: policy.Schema,
             SlugSource: policy.SlugSource.ToString(),
             SlugEditable: policy.SlugEditable,
+            DisplayField: policy.DisplayField,
             Locales: policy.Locales);
     }
 
@@ -78,6 +79,7 @@ public sealed class CollectionService : ICollectionService
                 CanCreate: canCreate,
                 SlugSource: policy.SlugSource.ToString(),
                 SlugEditable: policy.SlugEditable,
+                DisplayField: policy.DisplayField,
                 Locales: policy.Locales
             ));
         }
@@ -141,6 +143,43 @@ public sealed class CollectionService : ICollectionService
             : await BuildVirtualItemsAsync(policy, user, locale, userId, cancellationToken);
 
         return new CollectionListResponse(responses, total, offset, limit, virtualItems);
+    }
+
+    public async Task<CollectionLookupResponse> LookupAsync(
+        string key,
+        string? query,
+        IReadOnlyCollection<string>? slugs,
+        string? requestedLocale,
+        ClaimsPrincipal user,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var policy = await ResolveForReadAsync(key, user, cancellationToken);
+        var contains = string.IsNullOrWhiteSpace(query) ? null : query.Trim();
+
+        if (contains is not null && slugs is { Count: > 0 })
+            throw new ValidationException(["Send either 'q' or 'slugs': one searches for a record, the other names records already chosen."]);
+
+        if (slugs is { Count: > MaxLookupSlugs })
+            throw new ValidationException([$"'slugs' accepts at most {MaxLookupSlugs} slugs per request."]);
+
+        var locale = slugs is { Count: > 0 }
+            ? null
+            : LocaleResolver.Resolve(policy.Locales, requestedLocale, forWrite: false);
+
+        var (items, total) = await _repository.LookupAsync(policy.Key, locale, policy.DisplayField, contains, slugs, limit, cancellationToken);
+
+        return new CollectionLookupResponse(
+            [.. items.Select(item => new CollectionLookupItem(item.Slug, Label(item, policy.DisplayField)))],
+            total);
+    }
+
+    private static string Label(CollectionItem item, string? displayField)
+    {
+        if (displayField is null || item.Data[displayField] is not JsonValue value || !value.TryGetValue<string>(out var text))
+            return item.Slug;
+
+        return string.IsNullOrWhiteSpace(text) ? item.Slug : text;
     }
 
     public async Task<CollectionItemResponse?> GetAsync(string key, string slug, string? requestedLocale, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default)

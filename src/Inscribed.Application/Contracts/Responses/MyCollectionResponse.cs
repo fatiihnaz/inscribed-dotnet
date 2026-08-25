@@ -8,5 +8,6 @@ public sealed record MyCollectionResponse(
     bool CanCreate,
     string SlugSource,
     bool SlugEditable,
+    string? DisplayField,
     IReadOnlyList<string> Locales
 );

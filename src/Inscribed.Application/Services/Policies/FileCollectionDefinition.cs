@@ -10,6 +10,7 @@ public sealed record FileCollectionDefinition(
     string? SlugSourceField,
     ClaimSlugRule? ClaimSlug,
     bool SlugEditable,
+    string? DisplayField,
     bool AllowAnonymousRead,
     IReadOnlyList<string> Clients,
     CollectionAccess? Access,

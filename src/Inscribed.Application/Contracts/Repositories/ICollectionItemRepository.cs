@@ -17,6 +17,17 @@ public interface ICollectionItemRepository
         int limit,
         CancellationToken cancellationToken = default);
 
+    Task<(IReadOnlyList<CollectionItem> Items, int Total)> LookupAsync(
+        string key,
+        string? locale,
+        string? displayField,
+        string? contains,
+        IReadOnlyCollection<string>? slugs,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountByContainmentAsync(string key, JsonObject containment, CancellationToken cancellationToken = default);
+
     Task<CollectionItem?> GetBySlugAsync(string key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
 
     Task<CollectionItem?> GetByIdAsync(string key, Guid id, bool includeArchived = false, CancellationToken cancellationToken = default);

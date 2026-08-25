@@ -167,6 +167,7 @@ public static class CollectionDefinitionParser
             }
         }
 
+        var displayField = BuildDisplayField(document.DisplayField, fields, errors);
         var enrichments = BuildEnrichments(document.Enrich, fields, credentialNames, errors);
         var clients = BuildClients(document.Clients, errors);
         var access = BuildAccess(document.Access, document.AllowAnonymousRead, errors);

@@ -14,6 +14,8 @@ public interface ICollectionPolicy
 
     bool SlugEditable => false;
 
+    string? DisplayField => null;
+
     bool AllowAnonymousRead { get; }
 
     IReadOnlyList<string> Locales { get; }

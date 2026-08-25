@@ -26,7 +26,11 @@ public sealed record VirtualItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Version = null
 );
 
-public sealed record ArchiveResponse(string CollectionKey, string Slug, int Version);
+public sealed record ArchiveResponse(string CollectionKey, string Slug, int Version, int References);
+
+public sealed record CollectionLookupItem(string Slug, string Label);
+
+public sealed record CollectionLookupResponse(IReadOnlyList<CollectionLookupItem> Items, int Total);
 
 public sealed record CollectionListResponse(
     IReadOnlyList<CollectionItemResponse> Items,

@@ -7,6 +7,8 @@ namespace Inscribed.Infrastructure.Storage.Repositories;
 
 internal sealed class CollectionItemRepository : ICollectionItemRepository
 {
+    private const string EscapeCharacter = "\\";
+
     private readonly CmsDbContext _context;
 
     public CollectionItemRepository(CmsDbContext context)
@@ -55,6 +57,56 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
         var items = await Order(query, sort).Skip(offset).Take(limit).ToListAsync(cancellationToken);
 
         return (items, total);
+    }
+
+    public async Task<(IReadOnlyList<CollectionItem> Items, int Total)> LookupAsync(
+        string key,
+        string? locale,
+        string? displayField,
+        string? contains,
+        IReadOnlyCollection<string>? slugs,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.CollectionItems.Where(x => x.CollectionKey == key);
+
+        if (slugs is { Count: > 0 })
+        {
+            query = query.Where(x => slugs.Contains(x.Slug));
+        }
+        else
+        {
+            if (locale is not null)
+                query = query.Where(x => x.Locale == locale);
+
+            if (!string.IsNullOrWhiteSpace(contains))
+            {
+                var pattern = $"%{Escape(contains)}%";
+
+                query = displayField is null
+                    ? query.Where(x => EF.Functions.ILike(x.Slug, pattern, EscapeCharacter))
+                    : query.Where(x => EF.Functions.ILike(CmsDbFunctions.JsonText(x.Data, displayField)!, pattern, EscapeCharacter));
+            }
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+
+        var ordered = displayField is null
+            ? query.OrderBy(x => x.Slug)
+            : query.OrderBy(x => CmsDbFunctions.JsonText(x.Data, displayField)).ThenBy(x => x.Slug);
+
+        var items = await ordered.Take(limit).ToListAsync(cancellationToken);
+
+        return (items, total);
+    }
+
+    public Task<int> CountByContainmentAsync(string key, JsonObject containment, CancellationToken cancellationToken = default)
+    {
+        var json = containment.ToJsonString();
+
+        return _context.CollectionItems
+            .Where(x => x.CollectionKey == key && EF.Functions.JsonContains(x.Data, json))
+            .CountAsync(cancellationToken);
     }
 
     public async Task<CollectionItem?> GetBySlugAsync(string key, string slug, bool includeArchived = false, CancellationToken cancellationToken = default)
@@ -143,6 +195,9 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
     {
         return _context.SaveChangesAsync(cancellationToken);
     }
+
+    private static string Escape(string value) =>
+        value.Replace(EscapeCharacter, EscapeCharacter + EscapeCharacter).Replace("%", "\\%").Replace("_", "\\_");
 
     private static IQueryable<CollectionItem> Order(IQueryable<CollectionItem> query, CollectionSort sort)
     {

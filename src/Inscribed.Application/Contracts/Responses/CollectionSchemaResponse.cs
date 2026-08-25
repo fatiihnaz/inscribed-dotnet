@@ -7,5 +7,6 @@ public sealed record CollectionSchemaResponse(
     CollectionSchema Schema,
     string SlugSource,
     bool SlugEditable,
+    string? DisplayField,
     IReadOnlyList<string> Locales
 );

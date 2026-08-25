@@ -26,6 +26,15 @@ public interface ICollectionService
         int limit,
         CancellationToken cancellationToken = default);
 
+    Task<CollectionLookupResponse> LookupAsync(
+        string key,
+        string? query,
+        IReadOnlyCollection<string>? slugs,
+        string? requestedLocale,
+        ClaimsPrincipal user,
+        int limit,
+        CancellationToken cancellationToken = default);
+
     Task<CollectionItemResponse?> GetAsync(string key, string slug, string? requestedLocale, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default);
 
     Task<VirtualItemResponse?> GetVirtualAsync(string key, string slug, ClaimsPrincipal user, string userId, CancellationToken cancellationToken = default);

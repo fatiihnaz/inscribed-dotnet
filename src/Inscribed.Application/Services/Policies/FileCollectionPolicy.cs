@@ -31,6 +31,8 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public bool SlugEditable => _definition.SlugEditable;
 
+    public string? DisplayField => _definition.DisplayField;
+
     public bool AllowAnonymousRead => _definition.AllowAnonymousRead;
 
     public IReadOnlyList<string> Locales => _definition.Locales;
