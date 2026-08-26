@@ -132,7 +132,9 @@ A `Select` stores one value and `StringArray` stores many, and both take their c
 
 `source` is required on `Select`, because a list with nothing in it cannot be chosen from, and optional on `StringArray`, where its absence is free-form tagging. A `static` source rejects a write outside its `values` with **400**; `allowCustom: true` accepts anything the editor types, which is how a tag field suggests without dictating.
 
-A `collection` source is **not** checked on write. Verifying it would mean a cross-collection read on every save, and the reference is allowed to dangle anyway: the target can be archived later (below), and a client is expected to render a slug it cannot resolve as "not found" rather than treat it as an error.
+`source.kind` also decides the **shape of the value in a response**: a `static` source hands back what is stored, and a `collection` source hands back `{ "slug", "label" }` (see [References between collections](#references-between-collections)). Writes take a bare slug either way.
+
+A `collection` source is **not** checked on write. Verifying it would mean a cross-collection read on every save, and the reference is allowed to dangle anyway: the target can be archived later (below), and a client is expected to render a reference it cannot resolve as "not found" rather than treat it as an error.
 
 ### Slug
 
@@ -379,6 +381,38 @@ A field whose `source` is a collection stores the target's **slug**. A slug is n
 
 `displayField` belongs to the collection, not to the reference. Five fields pointing at `team-members` cannot then disagree about what one of its records is called, and a client that resolves a reference gets the same label everywhere. Omit it and items are named by their slug.
 
+**A read resolves the reference; a write does not.** The stored value is always a bare slug, and that is what a client posts. Every read hands the reference back as an object carrying the slug it stores and the label the target nominates:
+
+```jsonc
+// what you send
+{ "data": { "author": "ahmet-yilmaz", "reviewers": ["ayse-kaya"] } }
+
+// what you get back
+{ "data": {
+    "author":    { "slug": "ahmet-yilmaz", "label": "Ahmet Yılmaz" },
+    "reviewers": [ { "slug": "ayse-kaya", "label": "Ayşe Kaya" } ]
+} }
+```
+
+The asymmetry is the point: a label is the target's data, so storing a copy of it would mean rewriting every referring item whenever a name changes, and it would let five references disagree about one record. Resolving on read keeps one source of truth and leaves filters, `?sort=`, and the archive reference count operating on the slug they already match against.
+
+The shape is fixed so a client never has to branch:
+
+| Situation | Value |
+|---|---|
+| resolved | `{ "slug": "…", "label": "…" }` |
+| target archived, deleted, or unreadable | `{ "slug": "…", "label": null }` |
+| target collection has no `displayField` | `{ "slug": "…", "label": "…" }`, label repeating the slug |
+| nothing chosen | `null` (`[]` for a `StringArray`) |
+
+A `null` label is the same answer `lookup?slugs=` gives by omitting a slug: the reference is dangling, which a client renders as "not found" and offers to clear. A `StringArray` keeps one entry per stored slug, dangling ones included, so the array never silently shortens under a reader.
+
+**Labels respect the target's read rules.** A caller who could not read the referenced collection directly gets `label: null` and the slug, and no query is issued against that collection at all. Otherwise a public collection referencing a private one would publish the private collection's names to anonymous readers as a side effect of a `source` line. This is the one place references and [mirrors](#mirrored-fields) deliberately differ, and the reason is that a mirror is a sentence someone wrote in a definition file while a label comes for free.
+
+Resolution is **batched per response**: every slug a page needs is collected first and each referenced collection is read once, so a 50-row listing costs one extra query per referenced collection, not fifty. When the target collection is localized, the sibling in the locale being read wins, so a Turkish listing shows Turkish names.
+
+`draftData` is **not** resolved. It is the write shape, echoed back exactly as it was saved, so a panel binds a draft to its form the same way it binds the body it is about to post.
+
 One endpoint serves both halves of a picker:
 
 ```http
@@ -398,13 +432,14 @@ This is deliberately not `GET /{key}/{slug}`. A picker needs a name and somethin
 
 ### Mirrored fields
 
-A reference stores a slug, which is the right thing to store and the wrong thing to render. `from` puts a field of the referenced item into this item's own response:
+A reference already comes back with the target's **label**, so nothing needs declaring to render one. `from` is for **everything else** on the target: an avatar, a date, a price.
 
 ```jsonc
-{ "name": "author",     "type": "Select", "source": { "kind": "collection", "collection": "team-members" } },
-{ "name": "authorName", "type": "ShortText", "from": { "field": "author", "path": "fullName" } },
-{ "name": "authorPhoto", "type": "Image",    "from": { "field": "author", "path": "avatar" } }
+{ "name": "author",      "type": "Select", "source": { "kind": "collection", "collection": "team-members" } },
+{ "name": "authorPhoto", "type": "Image",  "from": { "field": "author", "path": "avatar" } }
 ```
+
+Mirroring the `displayField` is not wrong, just redundant: `author.label` already carries it.
 
 A field with `from` is **`readOnly` and `computed`** whether or not the file says so, exactly like a field produced by [enrichment](#read-time-enrichment): it appears in the schema, it is filled on every read, and a write that sends it is ignored rather than rejected. That is what makes this free on the client: a panel that already renders enrichment output renders mirrors with no new code, and can post an item straight back without stripping anything.
 
@@ -416,12 +451,12 @@ A field with `from` is **`readOnly` and `computed`** whether or not the file say
 | `StringArray` | must be `StringArray` | one value per reference; unresolvable ones are skipped, so the array is short rather than holed |
 | inside an `ObjectArray` | as above, declared in the same `itemFields` | resolved per row |
 
-Resolution is **batched per response**: every slug a page needs is collected first and each referenced collection is read once, so a 50-row listing costs one extra query per referenced collection, not fifty. An archived or deleted target resolves to `null`, which is the same answer `lookup?slugs=` gives for a reference whose target is gone. When the target collection is localized, the sibling in the locale being read wins, so a Turkish listing shows Turkish names.
+Mirrors ride the same batched pass as references and are read from the same locale sibling, so declaring one costs no extra query. An archived or deleted target resolves to `null`.
 
 Two things to know before reaching for it:
 
 - **The mirror follows the read, not the keystroke.** It is filled when the item is read, so an editor who picks a different reference sees the new mirror after the save round-trip. A panel that wants the label immediately already has it from `lookup`.
-- **Mirroring crosses the target's read rules.** A public collection that mirrors a field of a private one publishes that field. Nothing stops you, exactly as nothing stops `enrich` from publishing a credentialed API's response, but it is a decision you are making in the definition file rather than an accident.
+- **Mirroring crosses the target's read rules**, unlike the label on the reference itself. A public collection that mirrors a field of a private one publishes that field. Nothing stops you, exactly as nothing stops `enrich` from publishing a credentialed API's response, but it is a decision you are making in the definition file rather than an accident.
 
 ### Archive and restore
 

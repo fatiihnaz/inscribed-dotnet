@@ -114,7 +114,7 @@ public sealed class CollectionService : ICollectionService
 
         var (items, total) = await _repository.ListPagedAsync(key, locale, filterJson, order, archived, offset, limit, cancellationToken);
 
-        var enriched = await EnrichAllAsync(policy, items, locale, cancellationToken);
+        var enriched = await EnrichAllAsync(policy, items, locale, user, cancellationToken);
 
         var drafts = publishedOnly
             ? []
@@ -198,7 +198,7 @@ public sealed class CollectionService : ICollectionService
         item = await ResolveLocaleSiblingAsync(policy, item, requestedLocale, cancellationToken);
         if (item is null) return null;
 
-        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, user, cancellationToken);
         var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
 
         if (!isEditor)
@@ -219,7 +219,7 @@ public sealed class CollectionService : ICollectionService
         if (!policy.OwnsVirtualSlug(user, normalizedSlug))
             return null;
 
-        var data = await ProjectAsync(policy, normalizedSlug, new JsonObject(), locale: null, cancellationToken);
+        var data = await ProjectAsync(policy, normalizedSlug, new JsonObject(), locale: null, user, cancellationToken);
         var draft = await _drafts.GetItemDraftAsync(policy.Key, normalizedSlug, userId, cancellationToken);
 
         return new VirtualItemResponse(
@@ -280,7 +280,7 @@ public sealed class CollectionService : ICollectionService
         if (created)
             await _drafts.DeletePendingDraftAsync(key, createdLocale, updatedBy, cancellationToken);
 
-        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, user, cancellationToken);
         var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
@@ -317,7 +317,7 @@ public sealed class CollectionService : ICollectionService
 
         await _drafts.DeletePendingDraftAsync(key, locale, updatedBy, cancellationToken);
 
-        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, user, cancellationToken);
         var translations = await LoadTranslationsAsync(key, item, policy.Locales, cancellationToken);
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
@@ -398,7 +398,7 @@ public sealed class CollectionService : ICollectionService
         item.Restore(updatedBy, DateTime.UtcNow);
         await _repository.SaveChangesAsync(cancellationToken);
 
-        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, user, cancellationToken);
         var translations = await LoadTranslationsAsync(policy.Key, item, policy.Locales, cancellationToken);
         return ToResponse(item, enriched, canEdit: true, translations: translations);
     }
@@ -422,7 +422,7 @@ public sealed class CollectionService : ICollectionService
         RequireVersion(key, normalizedSlug, request.Version, item.Version);
 
         if (string.Equals(target, item.Slug, StringComparison.Ordinal))
-            return await BuildRenameResponseAsync(policy, item, cancellationToken);
+            return await BuildRenameResponseAsync(policy, item, user, cancellationToken);
 
         if (await _repository.GetBySlugAsync(key, target, includeArchived: true, cancellationToken) is not null)
             throw new ConflictException($"Slug '{target}' is already taken in '{key}'.", "taken", target);
@@ -436,7 +436,7 @@ public sealed class CollectionService : ICollectionService
 
         await MoveItemDraftAsync(key, normalizedSlug, target, updatedBy, cancellationToken);
 
-        return await BuildRenameResponseAsync(policy, item, cancellationToken);
+        return await BuildRenameResponseAsync(policy, item, user, cancellationToken);
     }
 
     public async Task ReleaseAliasAsync(string key, string slug, ClaimsPrincipal user, CancellationToken cancellationToken = default)
@@ -501,9 +501,9 @@ public sealed class CollectionService : ICollectionService
         await _drafts.DeleteItemDraftAsync(key, fromSlug, userId, cancellationToken);
     }
 
-    private async Task<CollectionItemResponse> BuildRenameResponseAsync(ICollectionPolicy policy, CollectionItem item, CancellationToken cancellationToken)
+    private async Task<CollectionItemResponse> BuildRenameResponseAsync(ICollectionPolicy policy, CollectionItem item, ClaimsPrincipal user, CancellationToken cancellationToken)
     {
-        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, cancellationToken);
+        var enriched = await ProjectAsync(policy, item.Slug, item.Data, item.Locale, user, cancellationToken);
         var translations = await LoadTranslationsAsync(policy.Key, item, policy.Locales, cancellationToken);
 
         return ToResponse(item, enriched, canEdit: true, translations: translations);
@@ -631,7 +631,7 @@ public sealed class CollectionService : ICollectionService
         return item;
     }
 
-    private async Task<JsonNode[]> EnrichAllAsync(ICollectionPolicy policy, IReadOnlyList<CollectionItem> items, string? locale, CancellationToken cancellationToken)
+    private async Task<JsonNode[]> EnrichAllAsync(ICollectionPolicy policy, IReadOnlyList<CollectionItem> items, string? locale, ClaimsPrincipal user, CancellationToken cancellationToken)
     {
         var enriched = new JsonNode[items.Count];
 
@@ -640,35 +640,86 @@ public sealed class CollectionService : ICollectionService
             new ParallelOptions { MaxDegreeOfParallelism = EnrichmentParallelism, CancellationToken = cancellationToken },
             async (index, token) => enriched[index] = await policy.EnrichAsync(items[index].Slug, items[index].Data, token));
 
-        return await MirrorAllAsync(policy, enriched, locale, cancellationToken);
+        return await MirrorAllAsync(policy, enriched, locale, user, cancellationToken);
     }
 
-    private async Task<JsonNode> ProjectAsync(ICollectionPolicy policy, string slug, JsonNode data, string? locale, CancellationToken cancellationToken)
+    private async Task<JsonNode> ProjectAsync(ICollectionPolicy policy, string slug, JsonNode data, string? locale, ClaimsPrincipal user, CancellationToken cancellationToken)
     {
         var enriched = await policy.EnrichAsync(slug, data, cancellationToken);
-        return (await MirrorAllAsync(policy, [enriched], locale, cancellationToken))[0];
+        return (await MirrorAllAsync(policy, [enriched], locale, user, cancellationToken))[0];
     }
 
-    private async Task<JsonNode[]> MirrorAllAsync(ICollectionPolicy policy, JsonNode[] nodes, string? locale, CancellationToken cancellationToken)
+    private async Task<JsonNode[]> MirrorAllAsync(ICollectionPolicy policy, JsonNode[] nodes, string? locale, ClaimsPrincipal user, CancellationToken cancellationToken)
     {
         if (nodes.Length == 0 || BuildMirrorLevel(policy.Schema.Fields) is not { } level)
             return nodes;
 
+        var labels = await ResolveLabelSourcesAsync(level, user, cancellationToken);
         var wanted = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var mirrored = new JsonNode[nodes.Length];
 
         for (var index = 0; index < nodes.Length; index++)
         {
             mirrored[index] = nodes[index].DeepClone();
-            CollectReferences(level, mirrored[index], wanted);
+            CollectReferences(level, mirrored[index], labels, wanted);
         }
 
         var targets = await LoadMirrorTargetsAsync(wanted, locale, cancellationToken);
 
         foreach (var node in mirrored)
-            WriteMirrors(level, node, targets);
+            WriteMirrors(level, node, labels, targets);
 
         return mirrored;
+    }
+
+    private async Task<Dictionary<string, string?>> ResolveLabelSourcesAsync(
+        MirrorLevel level,
+        ClaimsPrincipal user,
+        CancellationToken cancellationToken)
+    {
+        var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectReferencedCollections(level, referenced);
+
+        var sources = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var collection in referenced)
+        {
+            ICollectionPolicy target;
+
+            try
+            {
+                target = await ResolvePolicyAsync(collection, cancellationToken);
+            }
+            catch (Exception exception) when (exception is NotFoundException or MisconfiguredCollectionException)
+            {
+                continue;
+            }
+
+            if (PublishesLabels(target, user))
+                sources[collection] = target.DisplayField;
+        }
+
+        return sources;
+    }
+
+    private bool PublishesLabels(ICollectionPolicy target, ClaimsPrincipal user)
+    {
+        if (target.AllowAnonymousRead)
+            return true;
+
+        if (user.Identity?.IsAuthenticated != true)
+            return false;
+
+        return target.AppliesTo(_tenant.Resolve(user)) && target.CanRead(user);
+    }
+
+    private static void CollectReferencedCollections(MirrorLevel level, HashSet<string> referenced)
+    {
+        foreach (var plan in level.References)
+            referenced.Add(plan.Collection);
+
+        foreach (var (_, nested) in level.ObjectArrays)
+            CollectReferencedCollections(nested, referenced);
     }
 
     private async Task<Dictionary<(string Collection, string Slug), JsonNode>> LoadMirrorTargetsAsync(
@@ -722,6 +773,7 @@ public sealed class CollectionService : ICollectionService
     private static MirrorLevel? BuildMirrorLevel(IReadOnlyList<FieldDefinition> fields)
     {
         List<MirrorPlan>? mirrors = null;
+        List<ReferencePlan>? references = null;
         List<(string Field, MirrorLevel Level)>? objectArrays = null;
 
         foreach (var field in fields)
@@ -734,6 +786,9 @@ public sealed class CollectionService : ICollectionService
                 continue;
             }
 
+            if (field.Source is { Kind: ChoiceKind.Collection, Collection: { } referenced })
+                (references ??= []).Add(new ReferencePlan(field.Name, field.Type == FieldType.StringArray, referenced));
+
             if (field.From is not { } mirror)
                 continue;
 
@@ -743,21 +798,27 @@ public sealed class CollectionService : ICollectionService
                 (mirrors ??= []).Add(new MirrorPlan(field.Name, reference.Name, reference.Type == FieldType.StringArray, collection, mirror.Path));
         }
 
-        return mirrors is null && objectArrays is null ? null : new MirrorLevel(mirrors ?? [], objectArrays ?? []);
+        return mirrors is null && references is null && objectArrays is null
+            ? null
+            : new MirrorLevel(mirrors ?? [], references ?? [], objectArrays ?? []);
     }
 
-    private static void CollectReferences(MirrorLevel level, JsonNode? node, Dictionary<string, HashSet<string>> wanted)
+    private static void CollectReferences(
+        MirrorLevel level,
+        JsonNode? node,
+        IReadOnlyDictionary<string, string?> labels,
+        Dictionary<string, HashSet<string>> wanted)
     {
         if (node is not JsonObject item)
             return;
 
         foreach (var plan in level.Mirrors)
-        {
-            if (!wanted.TryGetValue(plan.Collection, out var slugs))
-                wanted[plan.Collection] = slugs = new HashSet<string>(StringComparer.Ordinal);
+            Want(wanted, plan.Collection, ReferencedSlugs(item, plan.Reference, plan.Many));
 
-            foreach (var slug in ReferencedSlugs(item, plan))
-                slugs.Add(slug);
+        foreach (var plan in level.References)
+        {
+            if (labels.ContainsKey(plan.Collection))
+                Want(wanted, plan.Collection, ReferencedSlugs(item, plan.Field, plan.Many));
         }
 
         foreach (var (field, nested) in level.ObjectArrays)
@@ -766,24 +827,46 @@ public sealed class CollectionService : ICollectionService
                 continue;
 
             foreach (var row in rows)
-                CollectReferences(nested, row, wanted);
+                CollectReferences(nested, row, labels, wanted);
         }
     }
 
-    private static void WriteMirrors(MirrorLevel level, JsonNode? node, Dictionary<(string, string), JsonNode> targets)
+    private static void Want(Dictionary<string, HashSet<string>> wanted, string collection, IEnumerable<string> slugs)
+    {
+        foreach (var slug in slugs)
+        {
+            if (!wanted.TryGetValue(collection, out var set))
+                wanted[collection] = set = new HashSet<string>(StringComparer.Ordinal);
+
+            set.Add(slug);
+        }
+    }
+
+    private static void WriteMirrors(
+        MirrorLevel level,
+        JsonNode? node,
+        IReadOnlyDictionary<string, string?> labels,
+        Dictionary<(string, string), JsonNode> targets)
     {
         if (node is not JsonObject item)
             return;
 
+        var chosen = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var plan in level.References)
+            chosen[plan.Field] = [.. ReferencedSlugs(item, plan.Field, plan.Many)];
+
         foreach (var plan in level.Mirrors)
         {
+            var slugs = chosen.GetValueOrDefault(plan.Reference) ?? [];
+
             if (plan.Many)
             {
                 var values = new JsonArray();
 
-                foreach (var slug in ReferencedSlugs(item, plan))
+                foreach (var slug in slugs)
                 {
-                    if (ReadTarget(targets, plan, slug) is { } value)
+                    if (ReadTarget(targets, plan.Collection, slug, plan.Path) is { } value)
                         values.Add(value);
                 }
 
@@ -791,9 +874,28 @@ public sealed class CollectionService : ICollectionService
                 continue;
             }
 
-            item[plan.Field] = ReferencedSlugs(item, plan).FirstOrDefault() is { } single
-                ? ReadTarget(targets, plan, single)
-                : null;
+            item[plan.Field] = slugs.Count == 0 ? null : ReadTarget(targets, plan.Collection, slugs[0], plan.Path);
+        }
+
+        foreach (var plan in level.References)
+        {
+            var resolvable = labels.TryGetValue(plan.Collection, out var displayField);
+            var slugs = chosen[plan.Field];
+
+            if (plan.Many)
+            {
+                var values = new JsonArray();
+
+                foreach (var slug in slugs)
+                    values.Add(ToReference(targets, plan.Collection, slug, displayField, resolvable));
+
+                item[plan.Field] = values;
+                continue;
+            }
+
+            item[plan.Field] = slugs.Count == 0
+                ? null
+                : ToReference(targets, plan.Collection, slugs[0], displayField, resolvable);
         }
 
         foreach (var (field, nested) in level.ObjectArrays)
@@ -802,15 +904,15 @@ public sealed class CollectionService : ICollectionService
                 continue;
 
             foreach (var row in rows)
-                WriteMirrors(nested, row, targets);
+                WriteMirrors(nested, row, labels, targets);
         }
     }
 
-    private static IEnumerable<string> ReferencedSlugs(JsonObject item, MirrorPlan plan)
+    private static IEnumerable<string> ReferencedSlugs(JsonObject item, string field, bool many)
     {
-        var value = item[plan.Reference];
+        var value = item[field];
 
-        var candidates = plan.Many
+        var candidates = many
             ? (value as JsonArray)?.AsEnumerable() ?? []
             : [value];
 
@@ -821,12 +923,44 @@ public sealed class CollectionService : ICollectionService
         }
     }
 
-    private static JsonNode? ReadTarget(Dictionary<(string, string), JsonNode> targets, MirrorPlan plan, string slug)
-        => targets.TryGetValue((plan.Collection, slug), out var data) && data[plan.Path] is { } value ? value.DeepClone() : null;
+    private static JsonObject ToReference(
+        Dictionary<(string, string), JsonNode> targets,
+        string collection,
+        string slug,
+        string? displayField,
+        bool resolvable) =>
+        new()
+        {
+            ["slug"] = JsonValue.Create(slug),
+            ["label"] = resolvable ? JsonValue.Create(ResolveLabel(targets, collection, slug, displayField)) : null,
+        };
+
+    private static string? ResolveLabel(
+        Dictionary<(string, string), JsonNode> targets,
+        string collection,
+        string slug,
+        string? displayField)
+    {
+        if (!targets.TryGetValue((collection, slug), out var data))
+            return null;
+
+        if (displayField is null || data[displayField] is not JsonValue value || !value.TryGetValue<string>(out var text))
+            return slug;
+
+        return string.IsNullOrWhiteSpace(text) ? slug : text;
+    }
+
+    private static JsonNode? ReadTarget(Dictionary<(string, string), JsonNode> targets, string collection, string slug, string path)
+        => targets.TryGetValue((collection, slug), out var data) && data[path] is { } value ? value.DeepClone() : null;
 
     private sealed record MirrorPlan(string Field, string Reference, bool Many, string Collection, string Path);
 
-    private sealed record MirrorLevel(IReadOnlyList<MirrorPlan> Mirrors, IReadOnlyList<(string Field, MirrorLevel Level)> ObjectArrays);
+    private sealed record ReferencePlan(string Field, bool Many, string Collection);
+
+    private sealed record MirrorLevel(
+        IReadOnlyList<MirrorPlan> Mirrors,
+        IReadOnlyList<ReferencePlan> References,
+        IReadOnlyList<(string Field, MirrorLevel Level)> ObjectArrays);
 
     private async Task<IReadOnlyList<CollectionItem>> RequireTranslationGroupAsync(string key, Guid translationGroupId, CancellationToken cancellationToken)
     {
@@ -989,7 +1123,7 @@ public sealed class CollectionService : ICollectionService
                     drafts[index] = (await _drafts.GetItemDraftAsync(policy.Key, slug, userId, token))?.Data;
             });
 
-        enriched = await MirrorAllAsync(policy, enriched, locale, cancellationToken);
+        enriched = await MirrorAllAsync(policy, enriched, locale, user, cancellationToken);
 
         for (var index = 0; index < offered.Count; index++)
         {
