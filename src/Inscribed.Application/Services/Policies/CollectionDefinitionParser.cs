@@ -799,16 +799,24 @@ public static class CollectionDefinitionParser
         }
 
         var choices = new List<string>(values.Count);
+        var repeated = new HashSet<string>(StringComparer.Ordinal);
+        var blanks = 0;
 
         foreach (var value in values)
         {
             if (string.IsNullOrWhiteSpace(value))
-                errors.Add($"{fieldRef}: 'source.values' entries must not be empty");
+                blanks++;
             else if (choices.Contains(value, StringComparer.Ordinal))
-                errors.Add($"{fieldRef}: choice '{value}' is listed more than once");
+                repeated.Add(value);
             else
                 choices.Add(value);
         }
+
+        if (blanks > 0)
+            errors.Add($"{fieldRef}: 'source.values' entries must not be empty");
+
+        foreach (var value in repeated.Order(StringComparer.Ordinal))
+            errors.Add($"{fieldRef}: choice '{value}' is listed more than once");
 
         return choices.Count == values.Count ? new ChoiceSource(ChoiceKind.Static, choices) : null;
     }
