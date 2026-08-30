@@ -7,6 +7,7 @@ using Inscribed.Application.Services.Policies;
 using Inscribed.Auth;
 using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Issuer;
+using Inscribed.Auth.Options;
 using Inscribed.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,7 +15,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddInscribedAuth(builder.Configuration);
-builder.Services.AddInscribedAuthIssuer(builder.Configuration);
+
+if (builder.Configuration.ReadAuthMode() is AuthMode.BuiltIn)
+{
+    builder.Services.AddInscribedAuthIssuer(builder.Configuration);
+}
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("ContentRead", policy =>

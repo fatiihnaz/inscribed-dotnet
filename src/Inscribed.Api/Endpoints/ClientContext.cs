@@ -1,4 +1,4 @@
-using Inscribed.Api.Authentication;
+using Inscribed.Application.Contracts.Identity;
 using Inscribed.Application.Contracts.Repositories;
 using Inscribed.Domain.Entities;
 
@@ -21,7 +21,7 @@ public static class ClientContext
     private static async ValueTask<object?> ResolveAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var http = context.HttpContext;
-        var clientKey = http.User.GetClientId();
+        var clientKey = http.RequestServices.GetRequiredService<IPrincipalTenant>().Resolve(http.User);
 
         if (string.IsNullOrWhiteSpace(clientKey))
             return Results.Unauthorized();

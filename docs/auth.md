@@ -6,6 +6,68 @@ How Inscribed identifies humans and machines, why it is built this way, and how 
 
 Inscribed wears two hats. Toward Google it is an **OAuth client**: Google's only job is to answer "this person really is fatih@gmail.com". Toward everything else it is an **authorization server**: it mints its own RS256 access tokens carrying its own capabilities and tenant key, and publishes the public keys as standard JWKS at `/.well-known/jwks.json`. The alternative (validating Google's tokens directly) was rejected because capabilities and tenancy could not live in Google's claim model; owning the token means adding another login provider later changes nothing on the CMS side.
 
+## Choosing an issuer
+
+The bundled identity provider ships in the box but is not mandatory. One setting decides:
+
+```jsonc
+"Auth": { "Mode": "BuiltIn" }   // BuiltIn | External
+```
+
+**BuiltIn** is everything this document describes: Google login, refresh rotation, service keys, the
+`auth_*` tables, `/auth/*` and the user and membership routes under `/admin/*`.
+
+**External** switches all of it off. `Inscribed.Auth.Issuer` is never registered, so its schema is
+never migrated and its routes return 404. Inscribed becomes a pure resource server that validates
+tokens minted elsewhere, discovered through `Auth:Authority`:
+
+```jsonc
+"Auth": {
+  "Mode": "External",
+  "Authority": "https://keycloak.example.com/realms/inscribed",
+  "Audience": "inscribed-cms",
+  "TenantClaim": "tenant",
+  "RolesClaim": "roles",
+  "RoleMap": { "cms-editor": "content:write" }
+}
+```
+
+`ValidIssuer` is deliberately left unset in External mode: the handler reads `iss` and the signing
+keys from the discovery document, so a provider sitting behind a proxy whose `iss` differs from its
+base URL still validates. Discovery is lazy and retried, so the CMS starts even when the provider is
+briefly down; only configuration errors (External with no `Authority`) stop the process.
+
+`TenantClaim` exists because `azp` carries the provider's client id, and one tenant often needs more
+than one client (a panel, a mobile app, a CI service account). A hardcoded claim per client lets them
+all resolve to the same Inscribed client key. In BuiltIn mode it must stay `azp`, which the bundled
+issuer mints itself; the app refuses to start otherwise.
+
+`RolesClaim` accepts a dotted path (`realm_access.roles`) for providers that nest roles inside a JSON
+claim. `RoleMap` translates provider role names onto the capability vocabulary; keys must not contain
+a colon, because environment variables split nested keys on it.
+
+**Switching modes** leaves `auth_*` data untouched, so going back finds it in place. But service keys
+minted by the bundled issuer stop working the moment you switch, and have to be replaced with the
+provider's own machine credentials. That is the one hard cut in the migration.
+
+**What the provider has to emit.** On Keycloak these are three protocol mappers on the client, and two
+of them fail silently when missing: without the audience mapper every request is a bare 401, without
+the roles mapper every request is a bare 403, and neither leaves anything in the log naming the cause.
+Check them first when a freshly wired provider refuses everything.
+
+| Mapper | Type | Produces |
+|---|---|---|
+| Audience | `oidc-audience-mapper` | `aud` containing `Auth:Audience` |
+| Realm roles | `oidc-usermodel-realm-role-mapper`, multivalued, claim name `roles` | a flat `roles` array rather than nested `realm_access.roles` |
+| Tenant | `oidc-hardcoded-claim-mapper`, claim name matching `Auth:TenantClaim` | the Inscribed client key this provider client belongs to |
+
+The roles mapper is optional if you set `RolesClaim` to `realm_access.roles` instead and let Inscribed
+read the nested claim. The other two have no alternative.
+
+`GET /auth/whoami` answers "what does this token actually carry" in one call: tenant, resolved
+capabilities, the role claim type in force, and every raw claim. It exists in both modes and is the
+first thing to reach for when a provider is newly wired up.
+
 ## The claim contract
 
 Everything the CMS reads from an authenticated request fits in five claims. As long as a token carries these, the CMS does not care who issued it; this contract, not an interface, is the seam that makes the auth module replaceable.
@@ -117,8 +179,15 @@ Auth tables are prefixed `auth_*`, live in their own `AuthDbContext` with a sepa
 
 ```jsonc
 "Auth": {
-  "Issuer": "https://cms.example.com",   // iss claim + public base URL; Google redirect URI derives from it
+  "Mode": "BuiltIn",                     // BuiltIn | External
   "Audience": "inscribed-cms",
+  "TenantClaim": "azp",                  // must stay azp in BuiltIn mode
+  "RolesClaim": "roles",                 // dotted paths allowed, e.g. realm_access.roles
+  "RoleMap": {},                         // provider role name -> capability
+  "Authority": "",                       // External only; required there
+  "RequireHttpsMetadata": true,          // External only; false for a plain-http trial
+
+  "Issuer": "https://cms.example.com",   // BuiltIn: iss claim + public base URL; Google redirect URI derives from it
   "AccessTokenMinutes": 15,
   "RefreshTokenDays": 30,
   "ReuseLeewaySeconds": 30,              // 0 = strict reuse detection

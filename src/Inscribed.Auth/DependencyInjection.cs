@@ -1,6 +1,7 @@
 using Inscribed.Application.Contracts.Identity;
 using Inscribed.Auth.Authentication;
 using Inscribed.Auth.Authorization;
+using Inscribed.Auth.Endpoints;
 using Inscribed.Auth.Identity;
 using Inscribed.Auth.Options;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,10 +15,16 @@ namespace Inscribed.Auth;
 
 public static class DependencyInjection
 {
+    public static AuthMode ReadAuthMode(this IConfiguration configuration)
+        => configuration.GetValue("Auth:Mode", AuthMode.BuiltIn);
+
     public static IServiceCollection AddInscribedAuth(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<AuthOptions>()
-            .Bind(configuration.GetSection("Auth"));
+            .Bind(configuration.GetSection("Auth"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<AuthOptions>, AuthOptionsValidator>();
 
         services.AddSingleton<IAdministratorPolicy, CapabilityAdministratorPolicy>();
         services.AddSingleton<IPrincipalTenant, ClaimPrincipalTenant>();
@@ -51,6 +58,8 @@ public static class DependencyInjection
 
     public static IEndpointRouteBuilder MapInscribedAuthEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapWhoAmIEndpoint();
+
         foreach (var module in app.ServiceProvider.GetServices<IAuthIssuerModule>())
         {
             module.MapEndpoints(app);

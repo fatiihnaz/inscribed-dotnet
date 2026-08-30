@@ -1,8 +1,9 @@
 using System.Reflection;
-using Inscribed.Auth;
+using Inscribed.Auth.Options;
 using Inscribed.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
 
 namespace Inscribed.Api.Endpoints;
 
@@ -14,17 +15,17 @@ public static class HealthEndpoints
 
     public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/health", (IServiceProvider services) => Results.Ok(new
+        app.MapGet("/health", (IOptions<AuthOptions> auth) => Results.Ok(new
         {
             status = "healthy",
             version = Version,
-            issuer = DescribeIssuer(services),
+            auth = DescribeAuth(auth.Value),
         })).AllowAnonymous();
 
         app.MapGet("/health/ready", async (
             CmsDbContext cms,
             IDistributedCache cache,
-            IServiceProvider services,
+            IOptions<AuthOptions> auth,
             CancellationToken ct) =>
         {
             var database = await CheckAsync(async () => await cms.Database.CanConnectAsync(ct));
@@ -41,7 +42,7 @@ public static class HealthEndpoints
             {
                 status = ready ? "ready" : "not ready",
                 version = Version,
-                issuer = DescribeIssuer(services),
+                auth = DescribeAuth(auth.Value),
                 checks = new
                 {
                     database = database.Detail,
@@ -70,8 +71,12 @@ public static class HealthEndpoints
         }
     }
 
-    private static string DescribeIssuer(IServiceProvider services)
-        => services.GetServices<IAuthIssuerModule>().Any() ? "built-in" : "external";
+    private static object DescribeAuth(AuthOptions options) => new
+    {
+        mode = options.Mode.ToString(),
+        authority = options.Mode is AuthMode.External ? options.Authority : options.Issuer,
+        tenantClaim = options.TenantClaim,
+    };
 
     private static string ReadVersion()
     {

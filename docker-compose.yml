@@ -10,6 +10,14 @@ services:
       - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
       - ConnectionStrings__Redis=redis:6379
       - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS:-}
+      - Auth__Mode=${AUTH_MODE:-BuiltIn}
+      - Auth__Audience=${AUTH_AUDIENCE:-inscribed-cms}
+      # External mode only; ignored when Auth__Mode is BuiltIn.
+      - Auth__Authority=${AUTH_AUTHORITY:-}
+      - Auth__TenantClaim=${AUTH_TENANT_CLAIM:-azp}
+      - Auth__RolesClaim=${AUTH_ROLES_CLAIM:-roles}
+      - Auth__RequireHttpsMetadata=${AUTH_REQUIRE_HTTPS_METADATA:-true}
+      # BuiltIn mode only.
       - Auth__Issuer=${AUTH_ISSUER:-http://localhost:5000}
       - Auth__Cookie__Secure=${AUTH_COOKIE_SECURE:-true}
       - Auth__Google__ClientId=${GOOGLE_CLIENT_ID:-}

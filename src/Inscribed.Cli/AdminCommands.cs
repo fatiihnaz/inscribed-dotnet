@@ -107,22 +107,26 @@ internal static partial class AdminCommands
         var action = args.Length > 1 ? args[1] : string.Empty;
         var options = CommandOptions.Parse(args, 2, interaction);
 
-        var admin = services.GetRequiredService<IAdminService>();
+        var issuer = services.GetService<IAdminService>();
         var clients = services.GetRequiredService<IClientService>();
+
+        IAdminService RequireIssuer() => issuer ?? throw new UsageException(
+            $"'{string.Join(' ', new[] { group, action }.Where(part => part.Length > 0))}' manages the bundled identity provider, "
+            + "which is switched off (Auth:Mode is External). Manage users, memberships and machine credentials in your own provider instead.");
 
         switch (group, action)
         {
             case ("status", ""):
-                await ShowStatusAsync(admin);
+                await ShowStatusAsync(RequireIssuer());
                 return;
             case ("user", "list"):
-                await ListUsersAsync(admin);
+                await ListUsersAsync(RequireIssuer());
                 return;
             case ("client", "list"):
                 await ListClientsAsync(clients);
                 return;
             case ("client", "show"):
-                await ShowClientAsync(clients, admin, options);
+                await ShowClientAsync(clients, issuer, options);
                 return;
             case ("client", "create"):
                 await CreateClientAsync(clients, options);
@@ -131,25 +135,25 @@ internal static partial class AdminCommands
                 await UpdateClientAsync(clients, options);
                 return;
             case ("membership", "list"):
-                await ListMembershipsAsync(admin, options);
+                await ListMembershipsAsync(RequireIssuer(), options);
                 return;
             case ("membership", "set"):
-                await SetMembershipAsync(admin, options);
+                await SetMembershipAsync(RequireIssuer(), options);
                 return;
             case ("membership", "remove"):
-                await RemoveMembershipAsync(admin, options, interaction);
+                await RemoveMembershipAsync(RequireIssuer(), options, interaction);
                 return;
             case ("service-key", "list"):
-                await ListServiceKeysAsync(admin, options);
+                await ListServiceKeysAsync(RequireIssuer(), options);
                 return;
             case ("service-key", "create"):
-                await CreateServiceKeyAsync(admin, options);
+                await CreateServiceKeyAsync(RequireIssuer(), options);
                 return;
             case ("service-key", "revoke"):
-                await RevokeServiceKeyAsync(admin, options, interaction);
+                await RevokeServiceKeyAsync(RequireIssuer(), options, interaction);
                 return;
             case ("signing-key", "rotate"):
-                RotateSigningKey(admin, interaction);
+                RotateSigningKey(RequireIssuer(), interaction);
                 return;
             case ("collection", "list"):
                 await ListCollectionsAsync(Definitions(services));
@@ -240,22 +244,31 @@ internal static partial class AdminCommands
             ("SIGNING KEY", overview.SigningKeyId));
     }
 
-    private static async Task ShowClientAsync(IClientService clients, IAdminService admin, CommandOptions options)
+    private static async Task ShowClientAsync(IClientService clients, IAdminService? issuer, CommandOptions options)
     {
         var key = options.Require("key");
         var client = await clients.GetAsync(key);
-        var identity = await admin.GetClientAsync(key);
 
-        Output.Detail(
+        var rows = new List<(string, string)>
+        {
             ("KEY", client.Key),
-            ("NAME", identity.Name),
             ("STATE", client.IsActive ? Output.Green("active") : Output.Red("inactive")),
             ("ANON-READ", client.AllowAnonymousContentRead ? "yes" : "no"),
             ("LOCALES", client.Locales.Count == 0 ? Output.Dim("(not localized)") : string.Join(", ", client.Locales)),
-            ("ORIGINS", identity.AllowedRedirectOrigins.Length == 0 ? Output.Dim("(none)") : string.Join(", ", identity.AllowedRedirectOrigins)),
             ("CREATED", client.CreatedAt.ToString("yyyy-MM-dd HH:mm 'UTC'")),
-            ("KEYS", $"{identity.ServiceKeys} ({identity.ActiveServiceKeys} active)"),
-            ("MEMBERS", identity.Members.ToString()));
+        };
+
+        if (issuer is not null)
+        {
+            var identity = await issuer.GetClientAsync(key);
+
+            rows.Insert(1, ("NAME", identity.Name));
+            rows.Add(("ORIGINS", identity.AllowedRedirectOrigins.Length == 0 ? Output.Dim("(none)") : string.Join(", ", identity.AllowedRedirectOrigins)));
+            rows.Add(("KEYS", $"{identity.ServiceKeys} ({identity.ActiveServiceKeys} active)"));
+            rows.Add(("MEMBERS", identity.Members.ToString()));
+        }
+
+        Output.Detail([.. rows]);
     }
 
     private static string Count(int total, string noun) => $"{total} {noun}{(total == 1 ? string.Empty : "s")}";

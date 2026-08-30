@@ -29,6 +29,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
   - [Drafts](#drafts)
   - [Collections](#collections)
   - [Identity, tokens and capabilities](#identity-tokens-and-capabilities)
+  - [Bringing your own identity provider](#bringing-your-own-identity-provider)
   - [Anonymous public reads and caching](#anonymous-public-reads-and-caching)
 - [Architecture](#architecture)
 - [API surface](#api-surface)
@@ -42,7 +43,7 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 ## Features
 
 - **Code-first content structure.** The frontend repo declares which blocks exist; `POST /cms/sync` is an **authoritative whole-state reconcile**, not a patch. Blocks missing from the manifest are archived (never hard-deleted) and restored automatically if they reappear.
-- **Self-issued identity provider.** Google OAuth (authorization code + PKCE) for login only; Inscribed mints its own RS256 access tokens with tenant and capability claims, publishes JWKS at `/.well-known/jwks.json`, and rotates signing keys at runtime without restarts.
+- **Identity provider included, not imposed.** The bundled provider does Google OAuth (authorization code + PKCE) for login only, mints its own RS256 access tokens with tenant and capability claims, publishes JWKS at `/.well-known/jwks.json`, and rotates signing keys at runtime without restarts. One setting switches it off entirely and points Inscribed at your own OIDC provider instead; see [Bringing your own identity provider](#bringing-your-own-identity-provider).
 - **Refresh token rotation with reuse detection.** Refresh tokens are opaque, hashed at rest, rotated on every use, and family-revoked on suspected theft, with a configurable leeway window that tolerates network-retry races instead of logging the user out.
 - **Machine-to-machine service keys.** `ink_live_…` keys are hashed at rest, compared in constant time, instantly revocable, and carry their own capabilities; a deploy pipeline syncs content with a key, no login dance.
 - **Per-user drafts in Redis.** Editors autosave drafts that overlay published values in their own reads only; publishing clears the draft. Draft data never touches PostgreSQL.
@@ -350,6 +351,48 @@ Both admin capabilities are for humans only: `/admin/*` can mint service keys, s
 
 The full design rationale (rotation, reuse leeway, key rotation grace, cookie strategy) is documented in [docs/auth.md](docs/auth.md).
 
+### Bringing your own identity provider
+
+The bundled provider is optional. `Auth:Mode` decides:
+
+| | `BuiltIn` (default) | `External` |
+|---|---|---|
+| Login | Google, through `/auth/login` | your provider |
+| Users and grants | Inscribed's own tables and `/admin/*` | your provider |
+| Machine access | service keys (`ink_live_…`) | your provider's client credentials |
+| Tokens validated against | Inscribed's own signing keys | `Auth:Authority` via OIDC discovery |
+| `auth_*` schema | migrated | never created |
+
+In `External` mode the whole bundled provider is left unregistered: `/auth/login`, `/auth/refresh`,
+`/.well-known/jwks.json` and the user and membership routes return 404, and the CLI refuses those
+commands with a message rather than a database error. Everything else is untouched: clients, locales,
+collections and content behave identically.
+
+Four settings are usually enough:
+
+```sh
+AUTH_MODE=External
+AUTH_AUTHORITY=https://keycloak.example.com/realms/inscribed
+AUTH_AUDIENCE=inscribed-cms
+AUTH_TENANT_CLAIM=tenant
+```
+
+Your provider must mint tokens carrying `sub`, the tenant claim, `roles`, `name`, and `email` on human
+principals only. `AUTH_TENANT_CLAIM` exists because a tenant often needs several provider clients (a
+panel, a mobile app, a CI service account) that must all resolve to one Inscribed client key; the
+provider stamps the same tenant value on each. Where role names differ, `Auth__RoleMap__<their-role>`
+maps them onto capabilities.
+
+On Keycloak that means three protocol mappers on the client: an audience mapper emitting
+`Auth:Audience`, a realm-role mapper writing a flat `roles` array, and a hardcoded claim carrying the
+tenant. The first two fail **silently** when missing, turning every request into an unexplained 401 or
+403 with nothing in the log, so check them first. See [docs/auth.md](docs/auth.md#choosing-an-issuer)
+for the exact mapper types.
+
+Tenants still come from Inscribed, not the provider: create them with `client create` and match the
+key in your provider's tenant claim. `GET /auth/whoami` shows what a token actually carries and is the
+quickest way to see why a request is refused.
+
 ### Anonymous public reads and caching
 
 For public sites there is a third read path that needs **no credential at all**: if an admin flips a client's `AllowAnonymousContentRead` flag, `GET /cms/public/{clientKey}/content?slug=…` serves published block values with CDN-cacheable headers. If the flag is off or the client key is unknown the endpoint returns **404**, leaking neither existence nor policy. Collection reads can likewise be opened per collection via `AllowAnonymousRead`.
@@ -496,7 +539,10 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 
 | Method & path | Policy | Purpose |
 |---|---|---|
-| `GET /.well-known/jwks.json` | public | RS256 public keys (JWKS) |
+| `GET /health` | public | liveness, running version, active auth mode |
+| `GET /health/ready` | public | readiness: database, Redis and migrations; 503 when not ready |
+| `GET /auth/whoami` | any signed-in caller | the caller's resolved tenant, capabilities and raw claims |
+| `GET /.well-known/jwks.json` | public | RS256 public keys (JWKS); BuiltIn mode only |
 | `GET /auth/login?clientKey=&redirectUri=` | public | start Google login (302) |
 | `GET /auth/google/callback` | public | complete login, set refresh cookie, 302 to SPA |
 | `POST /auth/refresh` | cookie | rotate refresh token, return `{ accessToken, expiresAtUtc }` |
