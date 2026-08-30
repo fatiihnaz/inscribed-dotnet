@@ -96,6 +96,7 @@ app.UseExceptionHandler();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapHealthEndpoints();
 app.MapCmsEndpoints();
 app.MapCollectionEndpoints();
 app.MapClientEndpoints();

@@ -19,6 +19,9 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 - [Features](#features)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
+  - [Run it (no Google account required)](#1-run-it-no-google-account-required)
+  - [Add human editors (Google login)](#2-add-human-editors-google-login)
+  - [Upgrading](#upgrading)
 - [Core concepts](#core-concepts)
   - [Tenancy: clients](#tenancy-clients)
   - [Pages and content blocks](#pages-and-content-blocks)
@@ -52,73 +55,63 @@ There is deliberately no built-in editor UI: Inscribed is the backend; panels, a
 
 | Dependency | Version | Notes |
 |---|---|---|
-| .NET SDK | 9.0 | building and running from source |
+| .NET SDK | 9.0 | building and running from source; the compose stack builds it for you |
 | PostgreSQL | 17 (any recent works) | one database, two schemas-by-prefix (`auth_*` tables have their own migration history) |
 | Redis | 7 | drafts and OAuth login state; required, not optional |
-| Google OAuth client | n/a | the only interactive login method; create one in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
+| Google OAuth client | n/a | **optional**: needed only for interactive human login. Machine access through service keys needs none. Create one in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
 | Docker + Compose | optional | the packaged way to run all of the above |
 
 ## Quick start
 
-This is the **self-hosted Docker path** ending with content synced and readable through the API. Running from source for development is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
+Two paths. The **first needs nothing but Docker** and gets you a working API in about a minute. The
+second adds human login through Google, which you only need once real editors show up. Running from
+source for development is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-1. Create a Google OAuth client (type: web application). The authorized redirect URI must be exactly `<AUTH_ISSUER>/auth/google/callback`; for a local trial that is `http://localhost:5000/auth/google/callback`.
+### 1. Run it (no Google account required)
 
-2. Copy the environment template and fill it in. `BOOTSTRAP_ADMIN_EMAIL` is the Google account that will receive `tenant:admin` on first login without needing a membership; `ADMIN_CONSOLE_ORIGIN` is the origin your admin panel (or, for a smoke test, any page you control) runs on.
+The admin CLI talks straight to the database and needs no token, so the whole trial happens without
+registering an OAuth application anywhere.
+
+1. Copy the environment template. For a local trial only three values matter:
 
    ```sh
    cp .env.example .env
-   # local trial values:
+   #   DB_PASSWORD=<anything>
    #   ASPNETCORE_ENVIRONMENT=Development
    #   AUTH_ISSUER=http://localhost:5000
-   #   AUTH_COOKIE_SECURE=false
    ```
 
-   > **Note:** in `Production` the app **refuses to start** with a `localhost` issuer; that guard is why the trial uses `Development`.
+   > **Note:** in `Production` the app **refuses to start** with a `localhost` issuer; that guard is
+   > why the trial uses `Development`.
 
-3. Start the stack. On boot the API migrates both database schemas, generates an RS256 signing key if none exists, and seeds the `admin` client.
+2. Start the stack. On boot the API migrates both database schemas, generates an RS256 signing key if
+   none exists, and seeds the `admin` client.
 
    ```sh
-   docker compose up -d --build
+   docker compose up -d
    ```
 
-4. Verify the identity provider is alive:
+3. Confirm it is up. `/health/ready` also tells you which identity provider is active and whether the
+   database, Redis and migrations are all in order:
 
    ```sh
-   curl http://localhost:5000/.well-known/jwks.json
+   curl http://localhost:5000/health/ready
+   # → {"status":"ready","version":"1.2.0","issuer":"built-in","checks":{...}}
    ```
 
-5. Log in as the bootstrap admin by opening this URL in a browser (login is a page redirect, not an XHR):
-
-   ```
-   http://localhost:5000/auth/login?clientKey=admin&redirectUri=<ADMIN_CONSOLE_ORIGIN>/auth/done
-   ```
-
-   After the Google screen you land back on your origin with an httpOnly refresh cookie set. Exchange it for an access token from that page's devtools console:
-
-   ```js
-   const { accessToken } = await fetch("http://localhost:5000/auth/refresh", {
-     method: "POST", credentials: "include",
-   }).then(r => r.json());
-   ```
-
-6. Create a tenant, mint a deploy key, and sync a first page (replace `$TOKEN` with the access token):
-
-   > **Tip:** steps 5 and 6 exist because `/admin/*` needs an admin token. With the .NET SDK installed you can skip the browser and the devtools console entirely: the [admin CLI](#admin-cli) performs the same operations straight against the database, with no token at all.
+4. Create a tenant and mint a key for it:
 
    ```sh
-   curl -X POST http://localhost:5000/admin/clients \
-     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-     -d '{"key":"my-site","name":"My Site","allowedRedirectOrigins":["http://localhost:3000"]}'
-
-   curl -X POST http://localhost:5000/admin/clients/my-site/service-keys \
-     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-     -d '{"name":"deploy","capabilities":["deploy","render"]}'
-   # → { "id": "...", "keyPrefix": "ink_live_...", "key": "ink_live_..." }
-   #   the raw key is shown ONCE in this response; store it now
+   docker compose run --rm admin client create --key my-site --name "My Site"
+   docker compose run --rm admin service-key create --client my-site --name trial --capabilities deploy,render
+   # → ink_live_…   shown ONCE; store it now
    ```
 
-   > **Note:** presets compose, so this one key can both sync and read back, which keeps the trial to a single credential. In production give the pipeline `deploy` and the rendering site `render` as **separate** keys: a leaked render key then cannot reconcile your schema away.
+   > **Note:** presets compose, so this one key can both sync and read back, which keeps the trial to a
+   > single credential. In production give the pipeline `deploy` and the rendering site `render` as
+   > **separate** keys: a leaked render key then cannot reconcile your schema away.
+
+5. Sync a first page and read it back:
 
    ```sh
    curl -X POST http://localhost:5000/cms/sync \
@@ -127,15 +120,74 @@ This is the **self-hosted Docker path** ending with content synced and readable 
            {"blockPath":"hero.title","blockType":"ShortText","defaultValue":"Hello","sortOrder":0},
            {"blockPath":"hero.body","blockType":"RichText","defaultValue":"<p>…</p>","sortOrder":1}
          ]}]'
-   ```
 
-7. Read it back:
-
-   ```sh
    curl "http://localhost:5000/cms/content?slug=home" -H "Authorization: Bearer ink_live_..."
    ```
 
-You now have a running CMS with one tenant, one synced page, and a working admin identity. Next steps: grant editors access with `POST /admin/clients/{key}/memberships`, wire an editor panel against the API, and read [Core concepts](#core-concepts) for the content model.
+You now have a running CMS with one tenant and one synced page, and you never left the terminal.
+
+### 2. Add human editors (Google login)
+
+Machines are done; this part is for people. It is also the part you can skip entirely if you point
+Inscribed at your own identity provider instead.
+
+1. Create a Google OAuth client (type: web application). The authorized redirect URI must be exactly
+   `<AUTH_ISSUER>/auth/google/callback`; for a local trial that is
+   `http://localhost:5000/auth/google/callback`.
+
+2. Fill in the rest of `.env`. `BOOTSTRAP_ADMIN_EMAIL` is the Google account that will receive
+   `service:admin` on first login without needing a membership; `ADMIN_CONSOLE_ORIGIN` is the origin
+   your admin panel (or, for a smoke test, any page you control) runs on.
+
+   ```sh
+   #   AUTH_COOKIE_SECURE=false        # local trial only
+   #   GOOGLE_CLIENT_ID=…
+   #   GOOGLE_CLIENT_SECRET=…
+   #   BOOTSTRAP_ADMIN_EMAIL=you@example.com
+   #   ADMIN_CONSOLE_ORIGIN=http://localhost:3001
+   ```
+
+   Restart the stack so the new values are picked up: `docker compose up -d`.
+
+3. Verify the identity provider is alive:
+
+   ```sh
+   curl http://localhost:5000/.well-known/jwks.json
+   ```
+
+4. Log in by opening this URL in a browser (login is a page redirect, not an XHR):
+
+   ```
+   http://localhost:5000/auth/login?clientKey=admin&redirectUri=<ADMIN_CONSOLE_ORIGIN>/auth/done
+   ```
+
+   After the Google screen you land back on your origin with an httpOnly refresh cookie set. Exchange
+   it for an access token from that page's devtools console:
+
+   ```js
+   const { accessToken } = await fetch("http://localhost:5000/auth/refresh", {
+     method: "POST", credentials: "include",
+   }).then(r => r.json());
+   ```
+
+   That token carries `service:admin`, so it can reach every `/admin/*` route. The same operations are
+   available token-free through the [admin CLI](#admin-cli).
+
+Next steps: grant editors access with `POST /admin/clients/{key}/memberships`, wire an editor panel
+against the API, and read [Core concepts](#core-concepts) for the content model.
+
+### Upgrading
+
+The compose stack builds from source, so an upgrade is a pull and a rebuild:
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+Migrations run on startup by default, so there is nothing else to do. Read the release notes before
+crossing a major version: those carry breaking changes to capability names or the token contract.
+
 
 ## Core concepts
 
@@ -287,11 +339,14 @@ Authorization is a **set of capabilities**, not a rank. A principal holds any co
 | `content:read` | read published pages and collections | render service key, SSR frontend |
 | `content:write` | page content and drafts, collection items and drafts | editors |
 | `schema:sync` | `POST /cms/sync` only | deploy pipeline |
-| `tenant:admin` | `/admin/*`: clients, memberships, service keys, signing-key rotation | operators |
+| `client:admin` | memberships, service keys, locales and anonymous read **for one client** | tenant owners |
+| `service:admin` | every `/admin/*` route on every client, plus client creation and signing-key rotation | operators |
 
 Splitting `schema:sync` from `content:write` is the point of the model: reconciling the block manifest is a deploy-time machine job, editing values is a human one, and a render process needs neither. A render key that also carried write capability could prune your content if the SSR host were compromised.
 
-`tenant:admin` is for humans only: `/admin/*` can mint service keys, so a machine holding it could issue itself replacements and outlive revocation. Service-key principals are rejected there even if their stored capability list says otherwise, and the bootstrap-admin allowlist only applies to logins through the admin client.
+Both admin capabilities are for humans only: `/admin/*` can mint service keys, so a machine holding one could issue itself replacements and outlive revocation. Service-key principals are rejected there even if their stored capability list says otherwise, and the bootstrap-admin allowlist only applies to logins through the admin client.
+
+`service:admin` cannot be granted on any client, by design: it administers the whole installation, so it comes only from `Auth:Admin:BootstrapAdmins` or, with an external issuer, from that provider's own roles. `client:admin` is the delegable tier and is scoped to the client it was granted on; reaching another client's routes with it is refused.
 
 The full design rationale (rotation, reuse leeway, key rotation grace, cookie strategy) is documented in [docs/auth.md](docs/auth.md).
 
@@ -406,7 +461,7 @@ Extension points, in the order you are likely to need them:
 
 ## API surface
 
-All routes return JSON; errors are RFC 7807 problem details (see [Error responses](#error-responses)). Policy column: **ContentRead** accepts `cms:read` or `cms:access`; **ContentWrite** and **SchemaSync** require `cms:access`; **TenantAdmin** requires `cms:admin` and a human principal; **anon\*** means anonymous when the relevant opt-in flag/policy allows it, otherwise ContentRead.
+All routes return JSON; errors are RFC 7807 problem details (see [Error responses](#error-responses)). Policy column: **ContentRead** accepts `content:read` or `content:write`; **ContentWrite** and **SchemaSync** require the capability of the same name; **ClientAdmin** requires `client:admin` (scoped to that client) or `service:admin`, and a human principal; **ServiceAdmin** requires `service:admin` and a human principal; **anon\*** means anonymous when the relevant opt-in flag/policy allows it, otherwise ContentRead.
 
 **Content**
 
@@ -531,7 +586,7 @@ inscribed my-site> service-key create
     1  editor   content:read + content:write
     2  render   content:read
     3  deploy   schema:sync
-    4  admin    tenant:admin  (human only)
+    4  admin    client:admin  (human only)
 
     or type them directly, comma separated
 

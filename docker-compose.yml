@@ -9,16 +9,22 @@ services:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
       - ConnectionStrings__Redis=redis:6379
-      - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS}
+      - Cors__AllowedOrigins=${CORS_ALLOWED_ORIGINS:-}
       - Auth__Issuer=${AUTH_ISSUER:-http://localhost:5000}
       - Auth__Cookie__Secure=${AUTH_COOKIE_SECURE:-true}
-      - Auth__Google__ClientId=${GOOGLE_CLIENT_ID}
-      - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
-      - Auth__Admin__BootstrapAdmins__0=${BOOTSTRAP_ADMIN_EMAIL}
+      - Auth__Google__ClientId=${GOOGLE_CLIENT_ID:-}
+      - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET:-}
+      - Auth__Admin__BootstrapAdmins__0=${BOOTSTRAP_ADMIN_EMAIL:-}
       - Auth__Admin__ConsoleOrigins__0=${ADMIN_CONSOLE_ORIGIN:-http://localhost:3001}
       - Database__MigrateOnStartup=${DB_MIGRATE_ON_STARTUP:-true}
     volumes:
       - ./collections:/app/collections
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +50,7 @@ services:
 
   # Admin console: `docker compose run --rm admin client list` (run enables the profile
   # on its own). Reaches the database over the compose network, so it works with 5432
-  # unpublished and before anyone has logged in.
+  # bound to loopback and before anyone has logged in.
   admin:
     profiles: ["admin"]
     build:
@@ -66,8 +72,10 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Loopback only: on a public host an unqualified "5432:5432" would put Postgres
+    # on every interface. Kept published so host-side tooling (psql, dotnet ef) works.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d inscribed_cms"]
       interval: 10s
@@ -78,7 +86,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

@@ -226,7 +226,7 @@ The affix forms strip what they matched (`WEB_LEADER` → `web`) and match case-
 
 Because the rule only names a claim, it survives replacing the identity provider: any issuer that emits the same claim keeps the collection working.
 
-**Who may write.** `CanEdit` is the derived set plus `tenant:admin`; `CanCreate` is admin-only. An admin override exists because leaders leave and their page still needs fixing; without it a departed claim would freeze a row nobody could touch.
+**Who may write.** `CanEdit` is the derived set plus either admin capability (`client:admin` or `service:admin`); `CanCreate` is admin-only. An admin override exists because leaders leave and their page still needs fixing; without it a departed claim would freeze a row nobody could touch.
 
 **Locales.** A claim value has no language, so on a localized collection the locale is appended: `web-tr`, `web-en`. Slug uniqueness is `(collection, slug)` with no locale in it, so this is what lets a claim-derived record be translated at all. Editing rights follow the base value: whoever owns `web` owns both `web-tr` and `web-en`.
 
