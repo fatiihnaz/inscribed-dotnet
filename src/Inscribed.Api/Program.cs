@@ -102,6 +102,7 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthEndpoints();
+app.MapDiagnosticsEndpoints();
 app.MapCmsEndpoints();
 app.MapCollectionEndpoints();
 app.MapClientEndpoints();

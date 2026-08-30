@@ -48,6 +48,7 @@ internal static partial class AdminCommands
         new("collection export", "COLLECTIONS", "--key <key> [--out <path>]", ["--key", "--out"]),
         new("collection delete", "COLLECTIONS", "--key <key> [--force]", ["--key", "--force"]),
         new("status", "SESSION", "", []),
+        new("doctor", "SESSION", "", []),
     ];
 
     public static readonly string[] Commands = [.. Specs.Select(spec => spec.Name)];
@@ -154,6 +155,9 @@ internal static partial class AdminCommands
                 return;
             case ("signing-key", "rotate"):
                 RotateSigningKey(RequireIssuer(), interaction);
+                return;
+            case ("doctor", ""):
+                await RunDoctorAsync(services);
                 return;
             case ("collection", "list"):
                 await ListCollectionsAsync(Definitions(services));

@@ -21,7 +21,10 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
         _definition = definition;
         _enrichers = enrichers;
         _administrators = administrators;
+        RequiredClaims = CollectionClaims.Required(definition);
     }
+
+    public IReadOnlyCollection<string> RequiredClaims { get; }
 
     public string Key => _definition.Key;
 

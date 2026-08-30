@@ -65,8 +65,16 @@ services:
       context: .
       dockerfile: Dockerfile
     entrypoint: ["dotnet", "Inscribed.Cli.dll"]
+    # Mirrors the api service's auth settings so 'doctor' diagnoses the same
+    # configuration the running API sees.
     environment:
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}
+      - Auth__Mode=${AUTH_MODE:-BuiltIn}
+      - Auth__Authority=${AUTH_AUTHORITY:-}
+      - Auth__TenantClaim=${AUTH_TENANT_CLAIM:-azp}
+      - Auth__RolesClaim=${AUTH_ROLES_CLAIM:-roles}
+      - Auth__Issuer=${AUTH_ISSUER:-http://localhost:5000}
     depends_on:
       db:
         condition: service_healthy

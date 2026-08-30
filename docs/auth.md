@@ -70,7 +70,9 @@ first thing to reach for when a provider is newly wired up.
 
 ## The claim contract
 
-Everything the CMS reads from an authenticated request fits in five claims. As long as a token carries these, the CMS does not care who issued it; this contract, not an interface, is the seam that makes the auth module replaceable.
+Five claims form the fixed core of what the CMS reads from an authenticated request. As long as a token carries these, the CMS does not care who issued it; this contract, not an interface, is the seam that makes the auth module replaceable.
+
+The core is not the whole contract, though. Collection definitions may bind to **any** claim name: `slug.source: ClaimDerived` names one in `slug.claim`, and every leaf of an `access` rule names one too. A deployment's real requirement is therefore the core five plus whatever its installed definitions reference, which is a per-installation set rather than a fixed list. `GET /admin/claim-requirements` and the CLI's `doctor` command both compute it, so it never has to be reconstructed by reading definitions by hand.
 
 | Claim | Meaning | Used for |
 |---|---|---|
@@ -82,7 +84,7 @@ Everything the CMS reads from an authenticated request fits in five claims. As l
 
 There is deliberately no `preferred_username`: Inscribed has no username concept (no local accounts, no passwords), so the OIDC-standard `name` + `email` pair is emitted instead.
 
-The vocabulary itself belongs to this module, not to the CMS. `content:read`, `content:write`, `schema:sync`, `client:admin`, `service:admin` and the `roles` claim that carries them are declared once, in [CapabilityCatalog](../src/Inscribed.Auth/Authorization/CapabilityCatalog.cs), and nothing in `Inscribed.Application` names any of them. Replace the module and you bring your own names; there is no constant in the core to edit and no second list to drift.
+The vocabulary is a shared contract, declared once in [CapabilityCatalog](../src/Inscribed.Auth/Authorization/CapabilityCatalog.cs): `content:read`, `content:write`, `schema:sync`, `client:admin`, `service:admin`, and the `roles` claim that carries them. Nothing in `Inscribed.Application` names any of them, so the core stays free of the vocabulary, but the vocabulary itself does not change when the issuer does. Swapping issuers means **mapping onto these names**, not inventing new ones: either emit them directly, or translate through `Auth:RoleMap`. That is the honest description of the seam; an earlier revision of this document claimed a replacement provider brings its own names, which was never true of the policies that consume them.
 
 That holds because the two places capabilities are enforced are both outside the core. Endpoint authorization is wired in the composition root, where `RequireRole` reads the catalog. The one authorization question the CMS core has to ask for itself is whether a principal may act on a claim-derived item that is not their own, and it asks it through an interface:
 
@@ -161,7 +163,7 @@ Authorization is a set, not a rank. A principal holds any combination of four ca
 
 The axis that matters is *who the principal is*, not how much power it has. Editing content values is always a human acting through a console; reconciling the block manifest is always a machine acting at deploy time; rendering needs neither. Collapsing the first two into one grant (as the former `cms:access` did) forced render and deploy credentials to carry each other's power, so a compromised SSR host could prune content through `/cms/sync`.
 
-The vocabulary lives in [`CapabilityCatalog`](../src/Inscribed.Auth/Authorization/CapabilityCatalog.cs) inside the auth module, because that is where grants are minted and validated; a replacement identity provider must emit the same strings. The **policies** that consume it stay in [Program.cs](../src/Inscribed.Api/Program.cs): what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
+The vocabulary lives in [`CapabilityCatalog`](../src/Inscribed.Auth/Authorization/CapabilityCatalog.cs) inside the resource-server half, because both the policies and the grant validation read it; a replacement identity provider must emit the same strings, or map onto them with `Auth:RoleMap`. The **policies** that consume it stay in [Program.cs](../src/Inscribed.Api/Program.cs): what counts as "may edit content" is a CMS concern and must survive replacing the identity provider.
 
 The claim is still named `roles` and the columns are still `Roles`. That is transport and storage naming, fixed by the JWT convention that `RequireRole` reads through `RoleClaimType`; `capabilities` is the vocabulary name used by the admin API, the CLI and these docs. Renaming the columns would buy nothing and cost a schema migration.
 

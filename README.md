@@ -390,8 +390,13 @@ tenant. The first two fail **silently** when missing, turning every request into
 for the exact mapper types.
 
 Tenants still come from Inscribed, not the provider: create them with `client create` and match the
-key in your provider's tenant claim. `GET /auth/whoami` shows what a token actually carries and is the
-quickest way to see why a request is refused.
+key in your provider's tenant claim.
+
+Two commands answer the questions that come up while wiring this together. `docker compose run --rm
+admin doctor` reports the database, the configured mode, whether the authority's discovery document is
+reachable, the registered tenant keys, and **every claim your issuer has to emit** (the core five plus
+whatever the installed collection definitions bind to). `GET /auth/whoami` reports what a given token
+actually carries. Comparing the two is the quickest way to see why a request is refused.
 
 ### Anonymous public reads and caching
 
@@ -542,6 +547,7 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 | `GET /health` | public | liveness, running version, active auth mode |
 | `GET /health/ready` | public | readiness: database, Redis and migrations; 503 when not ready |
 | `GET /auth/whoami` | any signed-in caller | the caller's resolved tenant, capabilities and raw claims |
+| `GET /admin/claim-requirements` | ServiceAdmin | every claim this installation's collections and policies need from an issuer |
 | `GET /.well-known/jwks.json` | public | RS256 public keys (JWKS); BuiltIn mode only |
 | `GET /auth/login?clientKey=&redirectUri=` | public | start Google login (302) |
 | `GET /auth/google/callback` | public | complete login, set refresh cookie, 302 to SPA |
@@ -594,6 +600,7 @@ docker compose run --rm admin client list                      # one-shot, works
 | Command | Purpose |
 |---|---|
 | `status` | tenant, user and active-key counts plus the active signing key |
+| `doctor` | database, auth mode, issuer reachability, registered tenants, and every claim your issuer must emit |
 | `user list` | users, with their Google link and active state |
 | `client list` | tenants, with active state, anonymous-read flag and locales |
 | `client show --key` | one tenant in full, both halves: name, origins, locales, creation time, key and member counts |

@@ -20,6 +20,8 @@ public interface ICollectionPolicy
 
     IReadOnlyList<string> Locales { get; }
 
+    IReadOnlyCollection<string> RequiredClaims => [];
+
     bool AppliesTo(string? tenant) => true;
 
     bool CanRead(ClaimsPrincipal user) => true;
