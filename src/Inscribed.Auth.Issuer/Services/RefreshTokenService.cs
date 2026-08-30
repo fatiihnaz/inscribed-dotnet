@@ -136,9 +136,9 @@ internal sealed class RefreshTokenService : IRefreshTokenService
 
         if (string.Equals(client.Key, _options.AdminClientKey, StringComparison.Ordinal)
             && _options.Admin.BootstrapAdmins.Contains(user.Email, StringComparer.OrdinalIgnoreCase)
-            && !roles.Contains(CapabilityCatalog.TenantAdmin))
+            && !roles.Contains(CapabilityCatalog.ServiceAdmin))
         {
-            roles.Add(CapabilityCatalog.TenantAdmin);
+            roles.Add(CapabilityCatalog.ServiceAdmin);
         }
 
         return roles;

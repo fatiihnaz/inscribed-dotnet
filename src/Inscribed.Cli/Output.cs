@@ -29,7 +29,7 @@ internal static class Output
 
     public static string Capability(string capability) => capability switch
     {
-        CapabilityCatalog.TenantAdmin => Red(capability),
+        CapabilityCatalog.ServiceAdmin or CapabilityCatalog.ClientAdmin => Red(capability),
         CapabilityCatalog.ContentWrite or CapabilityCatalog.SchemaSync => Yellow(capability),
         _ => capability,
     };

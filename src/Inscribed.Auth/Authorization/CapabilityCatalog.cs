@@ -17,11 +17,14 @@ public static class CapabilityCatalog
     public const string ContentRead = "content:read";
     public const string ContentWrite = "content:write";
     public const string SchemaSync = "schema:sync";
-    public const string TenantAdmin = "tenant:admin";
+    public const string ClientAdmin = "client:admin";
+    public const string ServiceAdmin = "service:admin";
 
-    public static readonly string[] All = [ContentRead, ContentWrite, SchemaSync, TenantAdmin];
+    public static readonly string[] All = [ContentRead, ContentWrite, SchemaSync, ClientAdmin, ServiceAdmin];
 
-    public static readonly string[] HumanOnly = [TenantAdmin];
+    public static readonly string[] HumanOnly = [ClientAdmin, ServiceAdmin];
+
+    public static readonly string[] InstallationWide = [ServiceAdmin];
 
     public static readonly IReadOnlyDictionary<string, string[]> Presets =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
@@ -29,7 +32,7 @@ public static class CapabilityCatalog
             ["editor"] = [ContentRead, ContentWrite],
             ["render"] = [ContentRead],
             ["deploy"] = [SchemaSync],
-            ["admin"] = [TenantAdmin],
+            ["admin"] = [ClientAdmin],
         };
 
     public static string Usage =>
@@ -66,6 +69,14 @@ public static class CapabilityCatalog
         if (unknown.Count > 0)
         {
             throw new ValidationException([$"Unknown capabilities: {string.Join(", ", unknown)}. {Usage.Replace(Environment.NewLine, " ")}"]);
+        }
+
+        var installationWide = resolved.Intersect(InstallationWide, StringComparer.Ordinal).ToArray();
+        if (installationWide.Length > 0)
+        {
+            throw new ValidationException([
+                $"{string.Join(", ", installationWide)} cannot be granted per client: it administers the whole installation. "
+                + "Grant it through Auth:Admin:BootstrapAdmins, or through the identity provider's own roles when an external issuer is configured."]);
         }
 
         if (target is GrantTarget.ServiceKey)

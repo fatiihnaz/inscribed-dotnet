@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:5000:5000"
+      - "5000:5000"
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ConnectionStrings__Default=Host=db;Port=5432;Database=inscribed_cms;Username=postgres;Password=${DB_PASSWORD}

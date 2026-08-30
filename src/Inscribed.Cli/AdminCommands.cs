@@ -89,7 +89,8 @@ internal static partial class AdminCommands
 
         Output.Blank();
         Output.Note(Output.Dim("Membership capabilities replace the existing set. A service key needs at least one"));
-        Output.Note(Output.Dim("capability and can never hold tenant:admin."));
+        Output.Note(Output.Dim("capability and can never hold an admin capability. service:admin is installation-wide"));
+        Output.Note(Output.Dim("and cannot be granted here; it comes from Auth:Admin:BootstrapAdmins or the identity provider."));
 
         if (!interactive)
         {

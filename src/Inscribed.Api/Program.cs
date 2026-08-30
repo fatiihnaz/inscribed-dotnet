@@ -32,10 +32,16 @@ builder.Services.AddAuthorizationBuilder()
         policy.RequireAuthenticatedUser();
         policy.RequireRole(CapabilityCatalog.SchemaSync);
     })
-    .AddPolicy("TenantAdmin", policy =>
+    .AddPolicy("ClientAdmin", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireRole(CapabilityCatalog.TenantAdmin);
+        policy.RequireRole(CapabilityCatalog.ClientAdmin, CapabilityCatalog.ServiceAdmin);
+        policy.RequireClaim("email");
+    })
+    .AddPolicy("ServiceAdmin", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole(CapabilityCatalog.ServiceAdmin);
         policy.RequireClaim("email");
     });
 

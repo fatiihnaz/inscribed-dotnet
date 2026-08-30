@@ -1,9 +1,7 @@
 ﻿using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Issuer.Entities;
-using Inscribed.Auth.Issuer.Options;
 using Inscribed.Auth.Issuer.Storage.Repositories;
 using Inscribed.Domain.Exceptions;
-using Microsoft.Extensions.Options;
 
 namespace Inscribed.Auth.Issuer.Services;
 
@@ -39,7 +37,6 @@ internal sealed class AdminService : IAdminService
     private readonly IServiceKeyRepository _serviceKeys;
     private readonly IServiceKeyService _serviceKeyService;
     private readonly ISigningKeyStore _signingKeys;
-    private readonly AuthIssuerOptions _options;
 
     public AdminService(
         IUserRepository users,
@@ -47,10 +44,8 @@ internal sealed class AdminService : IAdminService
         IMembershipRepository memberships,
         IServiceKeyRepository serviceKeys,
         IServiceKeyService serviceKeyService,
-        ISigningKeyStore signingKeys,
-        IOptions<AuthIssuerOptions> options)
+        ISigningKeyStore signingKeys)
     {
-        _options = options.Value;
         _users = users;
         _clients = clients;
         _memberships = memberships;
@@ -154,11 +149,6 @@ internal sealed class AdminService : IAdminService
         }
 
         var resolved = CapabilityCatalog.Resolve(capabilities, GrantTarget.Membership);
-        if (resolved.Intersect(CapabilityCatalog.HumanOnly, StringComparer.Ordinal).Any()
-            && !string.Equals(client.Key, _options.AdminClientKey, StringComparison.Ordinal))
-        {
-            throw new ValidationException([$"{string.Join(", ", CapabilityCatalog.HumanOnly)} may only be granted on the '{_options.AdminClientKey}' client: administration spans every tenant."]);
-        }
 
         var now = DateTime.UtcNow;
         var membership = await _memberships.GetAsync(user.Id, client.Id, cancellationToken);
