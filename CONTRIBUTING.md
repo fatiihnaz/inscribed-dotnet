@@ -15,6 +15,7 @@ Thanks for wanting to work on Inscribed. This document explains how the codebase
 - [Common tasks](#common-tasks)
 - [Commit conventions](#commit-conventions)
 - [Pull requests](#pull-requests)
+- [Releasing](#releasing)
 - [License of contributions](#license-of-contributions)
 
 ## Philosophy
@@ -209,6 +210,31 @@ Conventional Commits, imperative present mood, one focused commit per feature:
 4. API-visible changes update the README endpoint table and, where relevant, `docs/`.
 5. Call out breaking changes in the PR description, not just the commit footer.
 6. Explain non-obvious decisions in the description; remember the source itself stays comment-free.
+
+## Releasing
+
+Two workflows run in GitHub Actions. `ci.yml` builds every push to `main` and every pull request with
+`-warnaserror`, so a warning fails the build. `release.yml` runs only on a version tag and publishes
+the image.
+
+Cutting a release is one command:
+
+```sh
+git tag v2.1.0
+git push origin v2.1.0
+```
+
+That builds `linux/amd64` and `linux/arm64`, stamps the assembly version from the tag, and pushes four
+tags to `ghcr.io/<owner>/inscribed`: `2.1.0`, `2.1`, `2`, and `latest`. Adopters follow the floating
+`2` tag by default, so a patch or minor release reaches them with `docker compose pull`, while a new
+major never arrives unless they change `INSCRIBED_VERSION` themselves.
+
+Version numbers follow the commit types: a `feat!` or a `BREAKING CHANGE:` footer means the next major,
+`feat` the next minor, `fix` the next patch. Prereleases (`v2.1.0-rc.1`) publish their exact tag but do
+not claim `latest`.
+
+Nothing else needs doing: no credentials to configure, because the workflow authenticates to GHCR with
+the token GitHub issues to the run itself.
 
 ## License of contributions
 

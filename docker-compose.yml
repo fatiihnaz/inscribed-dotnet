@@ -1,5 +1,6 @@
 services:
   api:
+    image: ghcr.io/fatiihnaz/inscribed:${INSCRIBED_VERSION:-2}
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,6 +45,7 @@ services:
   # `docker compose --profile migrate run --rm api-migrate` before rolling out api replicas.
   api-migrate:
     profiles: ["migrate"]
+    image: ghcr.io/fatiihnaz/inscribed:${INSCRIBED_VERSION:-2}
     build:
       context: .
       dockerfile: Dockerfile
@@ -61,6 +63,7 @@ services:
   # bound to loopback and before anyone has logged in.
   admin:
     profiles: ["admin"]
+    image: ghcr.io/fatiihnaz/inscribed:${INSCRIBED_VERSION:-2}
     build:
       context: .
       dockerfile: Dockerfile

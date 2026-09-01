@@ -179,15 +179,26 @@ against the API, and read [Core concepts](#core-concepts) for the content model.
 
 ### Upgrading
 
-The compose stack builds from source, so an upgrade is a pull and a rebuild:
+`INSCRIBED_VERSION` in `.env` pins the image tag, defaulting to the floating major tag. Upgrading
+inside that major version is a pull and a restart:
 
 ```sh
-git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-Migrations run on startup by default, so there is nothing else to do. Read the release notes before
-crossing a major version: those carry breaking changes to capability names or the token contract.
+Migrations run on startup by default, so there is nothing else to do. `curl .../health` reports the
+version actually running afterwards.
+
+Crossing a major version is deliberate: read the release notes, then set `INSCRIBED_VERSION` to the
+new major. Majors carry breaking changes to capability names or the token contract, so a panel may
+need updating alongside.
+
+Running from source instead (contributors, or a change you have not released yet):
+
+```sh
+docker compose up -d --build
+```
 
 
 ## Core concepts
