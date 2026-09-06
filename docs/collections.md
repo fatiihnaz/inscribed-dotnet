@@ -312,6 +312,8 @@ Out-of-scope answers **404** rather than 403, with the same message an unknown k
 
 Public data stays public: a collection with `allowAnonymousRead` serves its published items to anyone, and `clients` narrows only the editing surface. For the same reason `allowAnonymousRead` together with an explicit `access.read` is a **startup error** rather than a silently dead rule.
 
+`GET /cms/collections/me` carries an `itemCount` per collection: how many live items its listing would show, which for a localized collection means the default locale (`locales[0]`) and never counts archived items. It is `null` when the caller may write but not read, so the endpoint cannot become a way to size a collection nobody may read.
+
 ### Translation groups
 
 Different slugs per language mean the rows cannot recognise each other by slug, so every item carries a `translationGroupId`. A record and its translations are the rows sharing one group.

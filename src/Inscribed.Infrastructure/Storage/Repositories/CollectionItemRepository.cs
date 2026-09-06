@@ -178,6 +178,18 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             .CountAsync(x => x.CollectionKey == key, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CollectionItemCount>> CountByCollectionAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default)
+    {
+        if (keys.Count == 0)
+            return [];
+
+        return await _context.CollectionItems
+            .Where(x => keys.Contains(x.CollectionKey))
+            .GroupBy(x => new { x.CollectionKey, x.Locale })
+            .Select(group => new CollectionItemCount(group.Key.CollectionKey, group.Key.Locale, group.Count()))
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<int> AssignMissingLocaleAsync(string key, string locale, CancellationToken cancellationToken = default)
     {
         return _context.CollectionItems

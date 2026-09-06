@@ -7,6 +7,7 @@ public sealed record MyCollectionResponse(
     string DisplayName,
     CollectionSchema Schema,
     bool CanCreate,
+    int? ItemCount,
     string SlugSource,
     bool SlugEditable,
     string? DisplayField,

@@ -42,6 +42,8 @@ public interface ICollectionItemRepository
 
     Task<int> CountAsync(string key, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<CollectionItemCount>> CountByCollectionAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default);
+
     Task<int> AssignMissingLocaleAsync(string key, string locale, CancellationToken cancellationToken = default);
 
     Task AddAsync(CollectionItem item, CancellationToken cancellationToken = default);

@@ -62,8 +62,8 @@ public sealed class CollectionService : ICollectionService
 
     public async Task<IReadOnlyList<MyCollectionResponse>> GetMyCollectionsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
-        var result = new List<MyCollectionResponse>();
         var tenant = _tenant.Resolve(user);
+        var mine = new List<(ICollectionPolicy Policy, bool CanCreate)>();
 
         foreach (var policy in await _policyResolver.AllAsync(cancellationToken))
         {
@@ -75,18 +75,54 @@ public sealed class CollectionService : ICollectionService
             if (!canCreate && policy.GetVirtualSlugs(user, locale: null).Count == 0)
                 continue;
 
-            result.Add(new MyCollectionResponse(
-                CollectionKey: policy.Key,
-                DisplayName: policy.DisplayName,
-                Schema: policy.Schema,
-                CanCreate: canCreate,
-                SlugSource: policy.SlugSource.ToString(),
-                SlugEditable: policy.SlugEditable,
-                DisplayField: policy.DisplayField,
-                Locales: policy.Locales
-            ));
+            mine.Add((policy, canCreate));
         }
-        return result;
+
+        var counts = await CountItemsAsync(
+            [.. mine.Select(entry => entry.Policy).Where(policy => policy.AllowAnonymousRead || policy.CanRead(user))],
+            cancellationToken);
+
+        return
+        [
+            .. mine.Select(entry => new MyCollectionResponse(
+                CollectionKey: entry.Policy.Key,
+                DisplayName: entry.Policy.DisplayName,
+                Schema: entry.Policy.Schema,
+                CanCreate: entry.CanCreate,
+                ItemCount: counts.TryGetValue(entry.Policy.Key, out var count) ? count : null,
+                SlugSource: entry.Policy.SlugSource.ToString(),
+                SlugEditable: entry.Policy.SlugEditable,
+                DisplayField: entry.Policy.DisplayField,
+                Locales: entry.Policy.Locales
+            ))
+        ];
+    }
+
+    private async Task<Dictionary<string, int>> CountItemsAsync(IReadOnlyList<ICollectionPolicy> policies, CancellationToken cancellationToken)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        if (policies.Count == 0)
+            return counts;
+
+        foreach (var policy in policies)
+            counts[policy.Key] = 0;
+
+        var listed = policies.ToDictionary(
+            policy => policy.Key,
+            policy => LocaleResolver.Resolve(policy.Locales, requested: null, forWrite: false),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in await _repository.CountByCollectionAsync([.. counts.Keys], cancellationToken))
+        {
+            if (!listed.TryGetValue(row.CollectionKey, out var locale))
+                continue;
+
+            if (locale is null || string.Equals(row.Locale, locale, StringComparison.Ordinal))
+                counts[row.CollectionKey] += row.Count;
+        }
+
+        return counts;
     }
 
     public async Task<CollectionListResponse> ListAsync(
