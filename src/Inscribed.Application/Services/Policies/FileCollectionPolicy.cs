@@ -28,6 +28,8 @@ public sealed class FileCollectionPolicy : ICollectionPolicy
 
     public string Key => _definition.Key;
 
+    public string DisplayName => _definition.DisplayName ?? _definition.Key;
+
     public CollectionSchema Schema => _definition.Schema;
 
     public SlugSource SlugSource => _definition.SlugSource;

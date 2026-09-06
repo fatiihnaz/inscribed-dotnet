@@ -49,6 +49,7 @@ public sealed class CollectionService : ICollectionService
 
         return new CollectionSchemaResponse(
             CollectionKey: policy.Key,
+            DisplayName: policy.DisplayName,
             Schema: policy.Schema,
             SlugSource: policy.SlugSource.ToString(),
             SlugEditable: policy.SlugEditable,
@@ -76,6 +77,7 @@ public sealed class CollectionService : ICollectionService
 
             result.Add(new MyCollectionResponse(
                 CollectionKey: policy.Key,
+                DisplayName: policy.DisplayName,
                 Schema: policy.Schema,
                 CanCreate: canCreate,
                 SlugSource: policy.SlugSource.ToString(),

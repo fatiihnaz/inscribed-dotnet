@@ -8,6 +8,8 @@ public interface ICollectionPolicy
 {
     string Key { get; }
 
+    string DisplayName => Key;
+
     CollectionSchema Schema { get; }
 
     SlugSource SlugSource { get; }

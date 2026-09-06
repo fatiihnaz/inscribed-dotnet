@@ -7,6 +7,7 @@ namespace Inscribed.Application.Services.Policies;
 public sealed class CollectionDefinitionDocument
 {
     public string? Key { get; init; }
+    public string? DisplayName { get; init; }
     public bool AllowAnonymousRead { get; init; }
     public List<string>? Clients { get; init; }
     public AccessDocument? Access { get; init; }

@@ -17,6 +17,7 @@ public static class CollectionDefinitionParser
     private const int DefaultCacheSeconds = 300;
     private const int MaxCacheSeconds = 86_400;
     private const int MaxClientKeyLength = 64;
+    private const int MaxDisplayNameLength = 80;
 
     private static readonly Regex KeyPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
     private static readonly Regex LocalePattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
@@ -167,6 +168,7 @@ public static class CollectionDefinitionParser
             }
         }
 
+        var displayName = BuildDisplayName(document.DisplayName, errors);
         var displayField = BuildDisplayField(document.DisplayField, fields, errors);
         var enrichments = BuildEnrichments(document.Enrich, fields, credentialNames, errors);
         var clients = BuildClients(document.Clients, errors);
@@ -177,6 +179,7 @@ public static class CollectionDefinitionParser
 
         return new FileCollectionDefinition(
             document.Key!,
+            displayName,
             new CollectionSchema([.. fields, .. enrichments.SelectMany(ComputedFields)]),
             slugSource,
             slugSourceField,
@@ -189,6 +192,28 @@ public static class CollectionDefinitionParser
             locales,
             source,
             enrichments);
+    }
+
+    private static string? BuildDisplayName(string? declared, List<string> errors)
+    {
+        if (declared is null)
+            return null;
+
+        var trimmed = declared.Trim();
+
+        if (trimmed.Length == 0)
+        {
+            errors.Add("'displayName' must name the collection; omit the property entirely to name it by its key");
+            return null;
+        }
+
+        if (trimmed.Length > MaxDisplayNameLength)
+        {
+            errors.Add($"'displayName' must be at most {MaxDisplayNameLength} characters");
+            return null;
+        }
+
+        return trimmed;
     }
 
     private static string? BuildDisplayField(string? declared, List<FieldDefinition>? fields, List<string> errors)

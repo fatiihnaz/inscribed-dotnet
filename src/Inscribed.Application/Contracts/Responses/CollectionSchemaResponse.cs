@@ -4,6 +4,7 @@ namespace Inscribed.Application.Contracts.Responses;
 
 public sealed record CollectionSchemaResponse(
     string CollectionKey,
+    string DisplayName,
     CollectionSchema Schema,
     string SlugSource,
     bool SlugEditable,

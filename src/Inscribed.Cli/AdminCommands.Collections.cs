@@ -40,6 +40,7 @@ internal static partial class AdminCommands
 
         Output.Detail(
             ("KEY", stored.Key),
+            ("NAME", parsed.Definition?.DisplayName ?? stored.Key),
             ("STATE", parsed.Succeeded ? Output.Green("valid") : Output.Red("invalid")),
             ("UPDATED BY", stored.UpdatedBy),
             ("UPDATED", stored.UpdatedAt.ToString("yyyy-MM-dd HH:mm 'UTC'")),

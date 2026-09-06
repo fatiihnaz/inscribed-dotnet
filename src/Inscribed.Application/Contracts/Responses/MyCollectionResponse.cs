@@ -4,6 +4,7 @@ namespace Inscribed.Application.Contracts.Responses;
 
 public sealed record MyCollectionResponse(
     string CollectionKey,
+    string DisplayName,
     CollectionSchema Schema,
     bool CanCreate,
     string SlugSource,

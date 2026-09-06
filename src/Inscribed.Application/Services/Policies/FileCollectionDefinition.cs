@@ -5,6 +5,7 @@ namespace Inscribed.Application.Services.Policies;
 
 public sealed record FileCollectionDefinition(
     string Key,
+    string? DisplayName,
     CollectionSchema Schema,
     SlugSource SlugSource,
     string? SlugSourceField,
