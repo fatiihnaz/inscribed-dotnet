@@ -18,6 +18,14 @@ public static class CollectionSchemaValidator
         new FieldDefinition("label", FieldType.ShortText, "Label")
     ];
 
+    private static readonly IReadOnlyList<FieldDefinition> FileFields =
+    [
+        new FieldDefinition("url", FieldType.Url, "Url", Required: true),
+        new FieldDefinition("name", FieldType.ShortText, "Name", Required: true),
+        new FieldDefinition("mime", FieldType.ShortText, "Mime"),
+        new FieldDefinition("size", FieldType.Number, "Size")
+    ];
+
     public static JsonObject ValidateAndStrip(CollectionSchema schema, JsonNode data, bool isDraft = false)
     {
         var errors = new List<string>();
@@ -75,6 +83,12 @@ public static class CollectionSchemaValidator
             if (field.Type == FieldType.Link)
             {
                 result[field.Name] = ValidateObject(LinkFields, value!, isDraft, errors, fieldPath);
+                continue;
+            }
+
+            if (field.Type == FieldType.File)
+            {
+                result[field.Name] = ValidateObject(FileFields, value!, isDraft, errors, fieldPath);
                 continue;
             }
 

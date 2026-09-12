@@ -11,6 +11,7 @@ public enum BlockType
     Date,
     Image,
     Link,
+    File,
     Select,
     StringArray,
     ObjectArray

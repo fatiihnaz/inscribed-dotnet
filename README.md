@@ -229,7 +229,7 @@ A page is a `slug` plus a flat list of **content blocks**. Each block has a `blo
 | `ShortText`, `LongText` | plain strings of varying editorial size |
 | `RichText` | HTML/rich content |
 | `Number`, `Bool`, `Url`, `Date` | typed scalars |
-| `Image`, `Link` | fixed-shape objects (`{ src, alt }`, `{ href, label }`) |
+| `Image`, `Link`, `File` | fixed-shape objects (`{ src, alt }`, `{ href, label }`, `{ url, name, mime, size }`) |
 | `Select`, `StringArray`, `ObjectArray` | one choice, many choices, a repeating group |
 
 Blocks and collection fields share one vocabulary, so a panel widget written for a field type renders the block type of the same name. An unknown `blockType` in a manifest is a **400** naming the block and listing the valid types, because discovery reports whatever the JSX says and a typo would otherwise leave a block that quietly never renders.

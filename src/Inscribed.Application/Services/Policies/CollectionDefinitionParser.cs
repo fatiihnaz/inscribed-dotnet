@@ -32,7 +32,7 @@ public static class CollectionDefinitionParser
     private static readonly FieldType[] SortableFieldTypes = [FieldType.ShortText, FieldType.Number, FieldType.Date, FieldType.Select];
 
     private static readonly FieldType[] ComputedFieldTypes =
-        [FieldType.ShortText, FieldType.LongText, FieldType.RichText, FieldType.Url, FieldType.Bool, FieldType.Number, FieldType.Date, FieldType.StringArray, FieldType.Image, FieldType.Link];
+        [FieldType.ShortText, FieldType.LongText, FieldType.RichText, FieldType.Url, FieldType.Bool, FieldType.Number, FieldType.Date, FieldType.StringArray, FieldType.Image, FieldType.Link, FieldType.File];
 
     private static readonly FieldType[] ChoiceFieldTypes = [FieldType.Select, FieldType.StringArray];
 

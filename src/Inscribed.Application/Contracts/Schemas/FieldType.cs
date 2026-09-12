@@ -11,6 +11,7 @@ public enum FieldType
     Date,
     Image,
     Link,
+    File,
     Select,
     StringArray,
     ObjectArray
