@@ -117,7 +117,7 @@ JSON comments and trailing commas are allowed (the files are written by hand). E
 | `ObjectArray` | list of structured objects, shaped by `itemFields` |
 | `Image` | fixed-shape object with `src` (`Url`) and `alt` (`ShortText`), both required whenever the field has a value |
 | `Link` | fixed-shape object with `href` (`Url`, required whenever the field has a value) and an optional `label` |
-| `File` | fixed-shape object with `url` (`Url`) and `name` (`ShortText`), both required whenever the field has a value, alongside an optional `mime` (`ShortText`) and `size` (`Number`) the uploader may not know |
+| `File` | fixed-shape object with `url` (`Url`) and `name` (`ShortText`), both required whenever the field has a value, alongside an optional `mime` (`ShortText`, may be empty) and `size` (`Number`, may be `null`); `url` must be empty, an `http:` or `https:` address, or a path starting with `/`, so a `javascript:` or `data:` address is refused |
 
 Block types and field types are one vocabulary: [content blocks](../README.md#pages-and-content-blocks) carry exactly this list, so a panel widget written for a field type renders the block of the same name.
 

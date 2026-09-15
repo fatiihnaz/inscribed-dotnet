@@ -234,6 +234,8 @@ A page is a `slug` plus a flat list of **content blocks**. Each block has a `blo
 
 Blocks and collection fields share one vocabulary, so a panel widget written for a field type renders the block type of the same name. An unknown `blockType` in a manifest is a **400** naming the block and listing the valid types, because discovery reports whatever the JSX says and a typo would otherwise leave a block that quietly never renders.
 
+Block values are stored as sent, with one exception: a `File` block's `url` must be empty, an `http:` or `https:` address, or a path starting with `/`. A site renders it straight into a link, so a `javascript:` or `data:` address is a **400** on publish and in a manifest `defaultValue` rather than a script waiting in a reader's browser.
+
 Editors publish with `PUT /cms/content`, sending each block's expected `version`; a mismatch fails with **409** listing every clashing block, so two editors cannot silently overwrite each other. Unchanged values are skipped without a version check, which is also the one case where `version` may be omitted: a block whose value actually changed must carry one, or the request fails with **400**. Nothing is written unless every block passes, so a rejected publish is a no-op rather than a partial one.
 
 ### Sync: the manifest reconcile

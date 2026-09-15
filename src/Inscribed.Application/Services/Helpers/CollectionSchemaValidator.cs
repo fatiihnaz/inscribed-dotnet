@@ -88,7 +88,12 @@ public static class CollectionSchemaValidator
 
             if (field.Type == FieldType.File)
             {
-                result[field.Name] = ValidateObject(FileFields, value!, isDraft, errors, fieldPath);
+                var file = ValidateObject(FileFields, value!, isDraft, errors, fieldPath);
+
+                if (!FileUrlRule.Accepts(file))
+                    errors.Add($"Field '{fieldPath}.url' {FileUrlRule.Expectation}.");
+
+                result[field.Name] = file;
                 continue;
             }
 

@@ -88,7 +88,7 @@ public sealed class ContentService : IContentService
 
         var unchanged = 0;
         var pending = new List<(ContentBlock Block, JsonNode Value)>();
-        var missingVersions = new List<string>();
+        var invalid = new List<string>();
         var conflicts = new List<VersionConflict>();
 
         foreach (var item in request.Blocks)
@@ -103,9 +103,15 @@ public sealed class ContentService : IContentService
                 unchanged++; continue;
             }
 
+            if (block.BlockType == BlockType.File && !FileUrlRule.Accepts(item.Value))
+            {
+                invalid.Add($"Block '{blockPath}': 'url' {FileUrlRule.Expectation}.");
+                continue;
+            }
+
             if (item.Version is not { } version)
             {
-                missingVersions.Add($"Block '{blockPath}' changed but carries no version.");
+                invalid.Add($"Block '{blockPath}' changed but carries no version.");
                 continue;
             }
 
@@ -118,8 +124,8 @@ public sealed class ContentService : IContentService
             pending.Add((block, item.Value));
         }
 
-        if (missingVersions.Count > 0)
-            throw new ValidationException(missingVersions);
+        if (invalid.Count > 0)
+            throw new ValidationException(invalid);
 
         if (conflicts.Count > 0)
             throw new ConcurrencyConflictException(
@@ -148,7 +154,7 @@ public sealed class ContentService : IContentService
         var desiredByKey = new Dictionary<(string? Locale, string Slug, string BlockPath), DesiredBlock>();
         var manifestPaths = new HashSet<(string Slug, string BlockPath)>();
         var requestSlugs = new HashSet<string>();
-        var unknownTypes = new List<string>();
+        var invalid = new List<string>();
 
         foreach (var manifest in manifests)
         {
@@ -161,7 +167,13 @@ public sealed class ContentService : IContentService
 
                 if (!TryParseBlockType(item.BlockType, out var blockType, out var typeError))
                 {
-                    unknownTypes.Add($"Block '{slug}/{blockPath}': {typeError}");
+                    invalid.Add($"Block '{slug}/{blockPath}': {typeError}");
+                    continue;
+                }
+
+                if (blockType == BlockType.File && !FileUrlRule.Accepts(item.DefaultValue))
+                {
+                    invalid.Add($"Block '{slug}/{blockPath}': 'defaultValue.url' {FileUrlRule.Expectation}.");
                     continue;
                 }
 
@@ -172,8 +184,8 @@ public sealed class ContentService : IContentService
             }
         }
 
-        if (unknownTypes.Count > 0)
-            throw new ValidationException(unknownTypes);
+        if (invalid.Count > 0)
+            throw new ValidationException(invalid);
 
         var existing = await _repository.GetByClientAsync(clientId, includeArchived: true, cancellationToken: cancellationToken);
 
