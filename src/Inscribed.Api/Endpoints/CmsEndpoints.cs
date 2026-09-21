@@ -32,6 +32,19 @@ public static class CmsEndpoints
             return Results.Ok(response);
         });
 
+        app.MapGet("/cms/public/{clientKey}/content/all", async (string clientKey, string? locale, HttpContext context, IClientRepository clients, IContentService service, CancellationToken ct) =>
+        {
+            var client = await clients.GetByKeyAsync(clientKey, ct);
+            if (client is null || !client.IsActive || !client.AllowAnonymousContentRead)
+                return Results.NotFound();
+
+            context.Response.Headers.CacheControl = $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}";
+
+            var resolved = LocaleResolver.Resolve(client.Locales, locale, forWrite: false);
+            var response = await service.GetAllDataAsync(clientKey, resolved, ct);
+            return Results.Ok(response);
+        });
+
         var group = app.MapGroup("/cms").RequireRegisteredClient();
 
         group.MapGet("/content", async (string? slug, string? locale, HttpContext context, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
@@ -60,6 +73,31 @@ public static class CmsEndpoints
                 : $"private, max-age={PublicReadMaxAgeSeconds}";
 
             return Results.Ok(await service.GetDataBySlugAsync(client.Key, resolved, slug, ct));
+        }).RequireAuthorization("ContentRead");
+
+        group.MapGet("/content/all", async (string? locale, HttpContext context, IContentService service, IAuthorizationService authorization, CancellationToken ct) =>
+        {
+            var client = context.GetClient();
+
+            var userId = context.User.GetUserSub();
+            if (string.IsNullOrWhiteSpace(userId))
+                return Results.Unauthorized();
+
+            context.Response.Headers.Vary = "Authorization";
+
+            var resolved = LocaleResolver.Resolve(client.Locales, locale, forWrite: false);
+
+            if ((await authorization.AuthorizeAsync(context.User, "ContentWrite")).Succeeded)
+            {
+                context.Response.Headers.CacheControl = "private, no-store";
+                return Results.Ok(await service.GetAllAsync(client.Key, resolved, userId, ct));
+            }
+
+            context.Response.Headers.CacheControl = client.AllowAnonymousContentRead
+                ? $"public, max-age={PublicReadMaxAgeSeconds}, stale-while-revalidate={PublicReadStaleSeconds}"
+                : $"private, max-age={PublicReadMaxAgeSeconds}";
+
+            return Results.Ok(await service.GetAllDataAsync(client.Key, resolved, ct));
         }).RequireAuthorization("ContentRead");
 
         group.MapPut("/content", async (string? locale, HttpContext context, UpdatePageRequest request, IContentService service, CancellationToken ct) =>

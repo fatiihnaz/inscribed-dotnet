@@ -33,6 +33,20 @@ internal sealed class ContentBlockRepository : IContentBlockRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ContentBlock>> GetByLocaleAsync(string clientId, string? locale, CancellationToken cancellationToken = default)
+    {
+        var query = _context.ContentBlocks.Where(x => x.ClientId == clientId);
+
+        query = locale is null
+            ? query.Where(x => x.Locale == null)
+            : query.Where(x => x.Locale == locale);
+
+        return await query
+            .OrderBy(x => x.Slug)
+            .ThenBy(x => x.SortOrder)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ContentBlock>> GetByClientAsync(string clientId, bool includeArchived = false, CancellationToken cancellationToken = default)
     {
         var query = _context.ContentBlocks.AsQueryable();

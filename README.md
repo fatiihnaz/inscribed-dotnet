@@ -236,6 +236,10 @@ Blocks and collection fields share one vocabulary, so a panel widget written for
 
 Block values are stored as sent, with one exception: a `File` block's `url` must be empty, an `http:` or `https:` address, or a path starting with `/`. A site renders it straight into a link, so a `javascript:` or `data:` address is a **400** on publish and in a manifest `defaultValue` rather than a script waiting in a reader's browser.
 
+`GET /cms/content` reads one page; `GET /cms/content/all` reads everything the client has in the requested locale in one call, shaped as `{ locale, global, pages }`, each entry a `{ slug, blocks }`. Both follow the same credential rule, so the whole-site read carries `draftValue` only for a `content:write` caller and is otherwise published values alone.
+
+A slug whose last segment starts with `__` is **not a route**: it is content shared by every page, such as a header and footer in `__global`, and the bundle returns it under `global` instead of in `pages`. The separation matters because `pages` lists the slugs that currently hold live blocks, not the site's routes: a page whose blocks were all archived, and a page that never declared an editable block at all, are both simply absent. A consumer that folded the shared blocks into per-page entries would therefore lose its header and footer on exactly those routes. Read `global` once and merge it at render time, and take the route list from the frontend router, which is the only place that knows it.
+
 Editors publish with `PUT /cms/content`, sending each block's expected `version`; a mismatch fails with **409** listing every clashing block, so two editors cannot silently overwrite each other. Unchanged values are skipped without a version check, which is also the one case where `version` may be omitted: a block whose value actually changed must carry one, or the request fails with **400**. Nothing is written unless every block passes, so a rejected publish is a no-op rather than a partial one.
 
 ### Sync: the manifest reconcile
@@ -531,6 +535,8 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 |---|---|---|
 | `GET /cms/content?slug=&locale=` | ContentRead | published blocks; the caller's draft overlay is added only for `content:write` |
 | `GET /cms/public/{clientKey}/content?slug=&locale=` | anon\* | as above, credential-free, CDN-cacheable |
+| `GET /cms/content/all?locale=` | ContentRead | the whole client in one response: `global` buckets plus every page holding live blocks, same draft rule |
+| `GET /cms/public/{clientKey}/content/all?locale=` | anon\* | as above, credential-free, CDN-cacheable |
 | `PUT /cms/content?locale=` | ContentWrite | publish block values (optimistic concurrency) |
 | `PUT /cms/draft?locale=` | ContentWrite | merge blocks into the caller's page draft |
 | `DELETE /cms/draft?slug=&locale=` | ContentWrite | discard the caller's whole page draft |

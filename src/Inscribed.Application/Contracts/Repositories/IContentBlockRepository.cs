@@ -6,6 +6,8 @@ public interface IContentBlockRepository
 {
     Task<IReadOnlyList<ContentBlock>> GetBySlugAsync(string clientId, string? locale, string slug, bool includeArchived = false, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<ContentBlock>> GetByLocaleAsync(string clientId, string? locale, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ContentBlock>> GetByClientAsync(string clientId, bool includeArchived = false, CancellationToken cancellationToken = default);
 
     Task AddRangeAsync(IEnumerable<ContentBlock> blocks, CancellationToken cancellationToken = default);

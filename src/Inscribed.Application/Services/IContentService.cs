@@ -9,6 +9,10 @@ public interface IContentService
 
     Task<ContentResponse> GetDataBySlugAsync(string clientId, string? locale, string slug, CancellationToken cancellationToken = default);
 
+    Task<ContentBundleResponse> GetAllAsync(string clientId, string? locale, string userId, CancellationToken cancellationToken = default);
+
+    Task<ContentBundleResponse> GetAllDataAsync(string clientId, string? locale, CancellationToken cancellationToken = default);
+
     Task<UpdatePageResponse> UpdatePageAsync(string clientId, string? locale, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default);
 
     Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default);

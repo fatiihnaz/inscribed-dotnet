@@ -35,27 +35,7 @@ public sealed class ContentService : IContentService
 
         var draftLookup = draft?.ToDictionary(d => d.BlockPath, d => d.Value);
 
-        var blockResponses = blocks
-            .Select(block =>
-            {
-                JsonNode? draftValue = null;
-                if (draftLookup is not null
-                    && draftLookup.TryGetValue(block.BlockPath, out var overlayValue)
-                    && !JsonNode.DeepEquals(overlayValue, block.Value))
-                {
-                    draftValue = overlayValue;
-                }
-
-                return new BlockResponse(
-                    BlockPath: block.BlockPath,
-                    BlockType: block.BlockType.ToString(),
-                    Value: block.Value,
-                    SortOrder: block.SortOrder,
-                    Version: block.Version,
-                    Data: null,
-                    DraftValue: draftValue
-                );
-            }).ToList();
+        var blockResponses = blocks.Select(block => ToResponse(block, draftLookup)).ToList();
 
         return new ContentResponse(normalizedSlug, locale, blockResponses);
     }
@@ -66,17 +46,74 @@ public sealed class ContentService : IContentService
 
         var blocks = await _repository.GetBySlugAsync(clientId, locale, normalizedSlug, cancellationToken: cancellationToken);
 
-        var blockResponses = blocks
-            .Select(block => new BlockResponse(
-                BlockPath: block.BlockPath,
-                BlockType: block.BlockType.ToString(),
-                Value: block.Value,
-                SortOrder: block.SortOrder,
-                Version: block.Version,
-                Data: null))
-            .ToList();
+        var blockResponses = blocks.Select(block => ToResponse(block, draftLookup: null)).ToList();
 
         return new ContentResponse(normalizedSlug, locale, blockResponses);
+    }
+
+    public async Task<ContentBundleResponse> GetAllAsync(string clientId, string? locale, string userId, CancellationToken cancellationToken = default)
+    {
+        var blocks = await _repository.GetByLocaleAsync(clientId, locale, cancellationToken);
+
+        var slugs = blocks.Select(block => block.Slug).Distinct(StringComparer.Ordinal).ToList();
+
+        var drafts = await Task.WhenAll(slugs.Select(async slug =>
+            (Slug: slug, Blocks: await _draftService.GetDraftAsync(clientId, locale, userId, slug, cancellationToken))));
+
+        var draftsBySlug = drafts
+            .Where(entry => entry.Blocks is not null)
+            .ToDictionary(
+                entry => entry.Slug,
+                entry => (IReadOnlyDictionary<string, JsonNode?>)entry.Blocks!.ToDictionary(d => d.BlockPath, d => d.Value),
+                StringComparer.Ordinal);
+
+        return BuildBundle(blocks, locale, draftsBySlug);
+    }
+
+    public async Task<ContentBundleResponse> GetAllDataAsync(string clientId, string? locale, CancellationToken cancellationToken = default)
+    {
+        var blocks = await _repository.GetByLocaleAsync(clientId, locale, cancellationToken);
+
+        return BuildBundle(blocks, locale, draftsBySlug: null);
+    }
+
+    private static ContentBundleResponse BuildBundle(
+        IReadOnlyList<ContentBlock> blocks,
+        string? locale,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, JsonNode?>>? draftsBySlug)
+    {
+        var grouped = blocks
+            .GroupBy(block => block.Slug, StringComparer.Ordinal)
+            .Select(page =>
+            {
+                IReadOnlyDictionary<string, JsonNode?>? draftLookup = null;
+                draftsBySlug?.TryGetValue(page.Key, out draftLookup);
+
+                return new ContentPageResponse(page.Key, page.Select(block => ToResponse(block, draftLookup)).ToList());
+            })
+            .ToLookup(page => GlobalSlugRule.IsGlobal(page.Slug));
+
+        return new ContentBundleResponse(locale, grouped[true].ToList(), grouped[false].ToList());
+    }
+
+    private static BlockResponse ToResponse(ContentBlock block, IReadOnlyDictionary<string, JsonNode?>? draftLookup)
+    {
+        JsonNode? draftValue = null;
+        if (draftLookup is not null
+            && draftLookup.TryGetValue(block.BlockPath, out var overlayValue)
+            && !JsonNode.DeepEquals(overlayValue, block.Value))
+        {
+            draftValue = overlayValue;
+        }
+
+        return new BlockResponse(
+            BlockPath: block.BlockPath,
+            BlockType: block.BlockType.ToString(),
+            Value: block.Value,
+            SortOrder: block.SortOrder,
+            Version: block.Version,
+            DraftValue: draftValue
+        );
     }
 
     public async Task<UpdatePageResponse> UpdatePageAsync(string clientId, string? locale, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default)
