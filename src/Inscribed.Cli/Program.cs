@@ -10,6 +10,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using System.Net.Sockets;
+using System.Text;
+
+var encoding = UseUtf8();
 
 try
 {
@@ -23,8 +27,48 @@ catch (UsageException exception)
 }
 catch (Exception exception)
 {
-    Console.Error.WriteLine(exception.Message);
+    Console.Error.WriteLine(Output.Describe(exception));
+
+    if (Unreachable(exception))
+    {
+        Console.Error.WriteLine("Nothing is listening there. 'docker compose up -d db' starts the packaged database.");
+    }
+
     return 1;
+}
+finally
+{
+    if (encoding is not null)
+    {
+        Console.OutputEncoding = encoding;
+    }
+}
+
+static bool Unreachable(Exception exception)
+{
+    for (var current = exception; current is not null; current = current.InnerException)
+    {
+        if (current is SocketException)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static Encoding? UseUtf8()
+{
+    try
+    {
+        var previous = Console.OutputEncoding;
+        Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        return previous;
+    }
+    catch (IOException)
+    {
+        return null;
+    }
 }
 
 static async Task<int> RunAsync(string[] args)
@@ -39,6 +83,20 @@ static async Task<int> RunAsync(string[] args)
 
     var builder = Host.CreateApplicationBuilder();
     builder.Logging.ClearProviders();
+
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Default"))
+        && EnvFile.Read(Directory.GetCurrentDirectory()) is { } settings)
+    {
+        builder.Configuration.AddInMemoryCollection(settings);
+    }
+
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Default")))
+    {
+        throw new InvalidOperationException(
+            "No database configured. Run from a directory whose .env carries DB_PASSWORD (the repository root does), "
+            + "or set ConnectionStrings__Default yourself.");
+    }
+
     builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions()));
     builder.Services.AddInfrastructureStorage(builder.Configuration);
     builder.Services.AddApplication(builder.Configuration);

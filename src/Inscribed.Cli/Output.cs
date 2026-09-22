@@ -11,7 +11,9 @@ internal static class Output
         Environment.GetEnvironmentVariable("NO_COLOR") is null
         && (Environment.GetEnvironmentVariable("FORCE_COLOR") is not null || !Console.IsOutputRedirected);
 
-    public static string Indent => Decorated ? "  " : string.Empty;
+    public static bool Framed { get; set; }
+
+    public static string Indent => Decorated && !Framed ? "  " : string.Empty;
 
     public static void Note(string message) => Console.Error.WriteLine(Indent + message);
 
@@ -27,6 +29,17 @@ internal static class Output
 
     public static string Bold(string text) => Paint(text, "\u001b[1m");
 
+    public static string Accent(string text) => Paint(text, AccentCode);
+
+    private static readonly string AccentCode = TrueColor()
+        ? "\u001b[38;2;224;200;229m"
+        : "\u001b[38;5;182m";
+
+    private static bool TrueColor() =>
+        OperatingSystem.IsWindows()
+        || Environment.GetEnvironmentVariable("COLORTERM") is "truecolor" or "24bit"
+        || Environment.GetEnvironmentVariable("TERM_PROGRAM") is "vscode";
+
     public static string Capability(string capability) => capability switch
     {
         CapabilityCatalog.ServiceAdmin or CapabilityCatalog.ClientAdmin => Red(capability),
@@ -36,6 +49,18 @@ internal static class Output
 
     public static string Capabilities(IReadOnlyList<string> capabilities) =>
         capabilities.Count == 0 ? Dim("(none)") : string.Join(" ", capabilities.Select(Capability));
+
+    public static string Describe(Exception exception)
+    {
+        var innermost = exception;
+
+        while (innermost.InnerException is { } inner)
+        {
+            innermost = inner;
+        }
+
+        return ReferenceEquals(innermost, exception) ? exception.Message : $"{exception.Message} ({innermost.Message})";
+    }
 
     public static void Detail(params (string Label, string Value)[] rows)
     {

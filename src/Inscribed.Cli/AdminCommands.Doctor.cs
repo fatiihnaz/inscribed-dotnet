@@ -57,7 +57,7 @@ internal static partial class AdminCommands
         }
         catch (Exception exception)
         {
-            return Output.Red(exception.Message);
+            return Output.Red(Output.Describe(exception));
         }
     }
 
@@ -97,7 +97,7 @@ internal static partial class AdminCommands
         }
         catch (Exception exception)
         {
-            return Output.Red(exception.Message);
+            return Output.Red(Output.Describe(exception));
         }
     }
 
@@ -137,7 +137,7 @@ internal static partial class AdminCommands
         catch (Exception exception)
         {
             Output.Blank();
-            Output.Note(Output.Red($"Could not read collection definitions: {exception.Message}"));
+            Output.Note(Output.Red($"Could not read collection definitions: {Output.Describe(exception)}"));
             return;
         }
 
