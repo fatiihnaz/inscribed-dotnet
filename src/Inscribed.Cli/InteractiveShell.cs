@@ -1,7 +1,9 @@
+using System.Reflection;
 using System.Text;
 using Inscribed.Application.Services;
 using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Issuer.Services;
+using Inscribed.Cli.Ui;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Inscribed.Cli;
@@ -10,179 +12,148 @@ internal static class InteractiveShell
 {
     private static readonly string[] TenantScoped = ["membership", "service-key"];
 
-    private static readonly string[] SessionVerbs = ["use", "help", "exit"];
+    public static Task RunAsync(IServiceScopeFactory scopes, string target) =>
+        SystemTerminal.IsInteractive
+            ? RunAsync(scopes, target, new SystemTerminal(Console.Error), HistoryPath())
+            : PlainShell.RunAsync(scopes, target);
 
-    public static async Task RunAsync(IServiceScopeFactory scopes, string target)
+    public static async Task RunAsync(IServiceScopeFactory scopes, string target, ITerminal terminal, string? historyPath)
     {
-        await WelcomeAsync(scopes, target);
-
+        var screen = new Screen(terminal);
+        var catalog = new ShellCatalog(scopes);
+        var prompt = new CommandPrompt(screen, new History(historyPath), (line, cursor) => ShellCompletion.Suggest(line, cursor, catalog));
         string? context = null;
-        string[]? clientKeys = null;
 
-        string[] ClientKeys()
+        using var capture = terminal.Capture();
+        Output.Framed = true;
+
+        try
         {
-            if (clientKeys is null)
-            {
-                using var scope = scopes.CreateScope();
-                var clients = scope.ServiceProvider.GetRequiredService<IClientService>().ListAsync().GetAwaiter().GetResult();
-                clientKeys = [.. clients.Select(client => client.Key)];
-            }
+            screen.Clear();
+            await WelcomeAsync(screen, scopes, target);
 
-            return clientKeys;
+            while (true)
+            {
+                await catalog.RefreshAsync();
+
+                var line = prompt.Read(context);
+                if (line is null)
+                {
+                    return;
+                }
+
+                var args = Tokenize(line);
+                if (args.Length == 0)
+                {
+                    continue;
+                }
+
+                switch (args[0])
+                {
+                    case "exit" or "quit" or "/exit" or "/quit":
+                        return;
+
+                    case "clear" or "/clear":
+                        screen.Clear();
+                        await WelcomeAsync(screen, scopes, target);
+                        continue;
+                }
+
+                screen.Print($"{Output.Accent("●")} {Output.Bold(line.Trim())}");
+
+                switch (args[0])
+                {
+                    case "help" or "/help" or "--help" or "-h":
+                        await RunBlockAsync(screen, "help", (_, _, _) =>
+                        {
+                            AdminCommands.WriteHelp(interactive: true);
+                            return Task.CompletedTask;
+                        });
+                        break;
+
+                    case "use":
+                        await RunBlockAsync(screen, "use", async (block, _, activity) =>
+                            context = await UseAsync(screen, scopes, block, activity, args.Length > 1 ? args[1] : null, context));
+                        break;
+
+                    default:
+                        await RunBlockAsync(screen, CommandName(args), async (block, writer, activity) =>
+                        {
+                            using var scope = scopes.CreateScope();
+                            var interaction = new ScreenInteraction(
+                                screen,
+                                block,
+                                activity,
+                                writer,
+                                scope.ServiceProvider,
+                                CommandName(args),
+                                guided: args.Length <= 2,
+                                Defaults(args, context));
+
+                            await AdminCommands.RunAsync(scope.ServiceProvider, args, interaction);
+                        });
+
+                        if (args[0] is "client" or "collection")
+                        {
+                            catalog.Invalidate();
+                        }
+
+                        break;
+                }
+            }
         }
-
-        var editor = new LineEditor((line, cursor) => Complete(line, cursor, ClientKeys));
-
-        while (true)
+        finally
         {
-            var line = editor.Read(context is null ? "inscribed> " : $"inscribed {context}> ");
-            if (line is null)
-            {
-                return;
-            }
-
-            var args = Tokenize(line);
-            if (args.Length == 0)
-            {
-                continue;
-            }
-
-            if (args[0] is "exit" or "quit" or "/exit" or "/quit")
-            {
-                return;
-            }
-
-            if (args[0] is "help" or "/help" or "--help" or "-h")
-            {
-                AdminCommands.WriteHelp(interactive: true);
-                continue;
-            }
-
-            if (args[0] is "use")
-            {
-                context = await UseAsync(scopes, args.Length > 1 ? args[1] : null);
-                continue;
-            }
-
-            if (args[0] is "client")
-            {
-                clientKeys = null;
-            }
-
-            try
-            {
-                using var scope = scopes.CreateScope();
-                await AdminCommands.RunAsync(
-                    scope.ServiceProvider,
-                    args,
-                    new ShellInteraction(guided: args.Length <= 2, defaults: Defaults(args, context)));
-            }
-            catch (Exception exception)
-            {
-                Output.Blank();
-                Output.Note(Output.Red(exception.Message));
-                Output.Blank();
-            }
+            screen.Clear();
+            Output.Framed = false;
         }
     }
 
-    private static async Task WelcomeAsync(IServiceScopeFactory scopes, string target)
+    internal static async Task<IReadOnlyList<(string Label, string Value)>> SummarizeAsync(IServiceScopeFactory scopes, string target)
     {
-        Output.Blank();
-        Output.Note(Output.Bold("Inscribed admin console"));
+        var rows = new List<(string Label, string Value)> { ("database", target) };
 
         try
         {
             using var scope = scopes.CreateScope();
-            var overview = await scope.ServiceProvider.GetRequiredService<IAdminService>().GetOverviewAsync();
-            Output.Note(Output.Dim($"{target} · {overview.Clients} clients · {overview.Users} users · {overview.ActiveServiceKeys} active keys · kid {overview.SigningKeyId}"));
-        }
-        catch (Exception exception)
-        {
-            Output.Note(Output.Red($"{target} · {exception.Message}"));
-        }
 
-        Output.Blank();
-        Output.Note(Output.Dim("'help' for commands · 'use <client>' to pick a tenant · 'exit' to leave"));
-        Output.Blank();
-    }
-
-    private static async Task<string?> UseAsync(IServiceScopeFactory scopes, string? key)
-    {
-        if (key is null)
-        {
-            Output.Blank();
-            Output.Note(Output.Dim("Context cleared."));
-            Output.Blank();
-            return null;
-        }
-
-        try
-        {
-            using var scope = scopes.CreateScope();
-            var detail = await scope.ServiceProvider.GetRequiredService<IAdminService>().GetClientAsync(key);
-
-            Output.Blank();
-            Output.Note(Output.Dim($"Context: {detail.Key} ({detail.Name})"));
-            Output.Blank();
-            return detail.Key;
-        }
-        catch (Exception exception)
-        {
-            Output.Blank();
-            Output.Note(Output.Red(exception.Message));
-            Output.Blank();
-            return null;
-        }
-    }
-
-    private static IReadOnlyList<string> Complete(string line, int cursor, Func<string[]> clientKeys)
-    {
-        var tokens = line[..cursor].Split(' ');
-        var index = tokens.Length - 1;
-        var current = tokens[index];
-
-        if (index == 0)
-        {
-            return Filter(SessionVerbs.Concat(AdminCommands.Specs.Select(spec => spec.Name.Split(' ')[0])), current);
-        }
-
-        if (index == 1)
-        {
-            return tokens[0] is "use"
-                ? Filter(clientKeys(), current)
-                : Filter(
-                    AdminCommands.Specs
-                        .Where(spec => spec.Name.StartsWith(tokens[0] + " ", StringComparison.Ordinal))
-                        .Select(spec => spec.Name.Split(' ')[1]),
-                    current);
-        }
-
-        if (AdminCommands.Specs.FirstOrDefault(spec => spec.Name == $"{tokens[0]} {tokens[1]}") is not { } command)
-        {
-            return [];
-        }
-
-        var previous = tokens[index - 1];
-
-        if (previous.StartsWith("--", StringComparison.Ordinal))
-        {
-            return previous switch
+            if (scope.ServiceProvider.GetService<IAdminService>() is { } issuer)
             {
-                "--client" or "--key" => Filter(clientKeys(), current),
-                "--capabilities" => Filter(CapabilityCatalog.All.Concat(CapabilityCatalog.Presets.Keys), current),
-                _ => [],
-            };
+                var overview = await issuer.GetOverviewAsync();
+
+                rows.Add(("auth", $"built-in issuer · kid {overview.SigningKeyId}"));
+                rows.Add(("totals", $"{AdminCommands.Count(overview.Clients, "tenant")} · {AdminCommands.Count(overview.Users, "user")} · {AdminCommands.Count(overview.ActiveServiceKeys, "active key")}"));
+            }
+            else
+            {
+                var clients = await scope.ServiceProvider.GetRequiredService<IClientService>().ListAsync();
+
+                rows.Add(("auth", "external issuer"));
+                rows.Add(("totals", AdminCommands.Count(clients.Count, "tenant")));
+            }
+        }
+        catch (Exception exception)
+        {
+            rows.Add(("error", Output.Red(Output.Describe(exception))));
         }
 
-        var used = tokens[..index].Where(token => token.StartsWith("--", StringComparison.Ordinal)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return Filter(command.Options.Where(option => !used.Contains(option)), current);
+        return rows;
     }
 
-    private static string[] Filter(IEnumerable<string> candidates, string prefix) =>
-        [.. candidates.Where(candidate => candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).Distinct().Order()];
+    internal static async Task<(string Key, string? Name)> ResolveTenantAsync(IServiceProvider services, string key)
+    {
+        var client = await services.GetRequiredService<IClientService>().GetAsync(key);
+        var name = services.GetService<IAdminService>() is { } issuer
+            ? (await issuer.GetClientAsync(client.Key)).Name
+            : null;
 
-    private static Dictionary<string, string>? Defaults(string[] args, string? context)
+        return (client.Key, name);
+    }
+
+    internal static GrantTarget Target(string[] args) =>
+        args[0] is "service-key" ? GrantTarget.ServiceKey : GrantTarget.Membership;
+
+    internal static Dictionary<string, string>? Defaults(string[] args, string? context)
     {
         if (context is null)
         {
@@ -200,7 +171,7 @@ internal static class InteractiveShell
             : null;
     }
 
-    private static string[] Tokenize(string line)
+    internal static string[] Tokenize(string line)
     {
         var tokens = new List<string>();
         var current = new StringBuilder();
@@ -235,84 +206,147 @@ internal static class InteractiveShell
 
         return [.. tokens];
     }
-}
 
-internal sealed class ShellInteraction : IInteraction
-{
-    private readonly bool _guided;
-    private readonly Dictionary<string, string>? _defaults;
+    private static string CommandName(string[] args) =>
+        args.Length > 1 && !args[1].StartsWith("--", StringComparison.Ordinal) ? $"{args[0]} {args[1]}" : args[0];
 
-    public ShellInteraction(bool guided, Dictionary<string, string>? defaults = null)
+    private static async Task WelcomeAsync(Screen screen, IServiceScopeFactory scopes, string target)
     {
-        _guided = guided;
-        _defaults = defaults;
+        var width = screen.Width - 1;
+        var mark = Wordmark.Render(width - 2);
+        var tagline = $"admin console · {Version()}";
+        string[] title = mark.Count > 0
+            ? [Output.Dim(tagline)]
+            : [$"{Output.Accent("✻")} {Output.Bold("Inscribed")} {Output.Dim(tagline)}"];
+        var summary = (await SummarizeAsync(scopes, target))
+            .Select(row => $"{Output.Dim(row.Label.PadRight(10))}{row.Value}")
+            .ToList();
+
+        string[] hint = [Output.Dim("help lists commands · use picks a tenant · tab completes")];
+
+        List<string> rows =
+        [
+            string.Empty,
+            .. Center(mark, width),
+            .. mark.Count > 0 ? [string.Empty] : Array.Empty<string>(),
+            .. Center(title, width),
+            string.Empty,
+            .. Center(summary, width),
+            string.Empty,
+            .. Center(hint, width),
+            string.Empty,
+        ];
+
+        screen.Print(string.Join('\n', rows));
     }
 
-    public string? Ask(string name, bool required, string? suggestion = null)
+    private static IEnumerable<string> Center(IReadOnlyList<string> block, int inner)
     {
-        if (_defaults is not null && _defaults.TryGetValue(name, out var preset))
+        if (block.Count == 0)
         {
-            return preset;
+            return [];
         }
 
-        if (!required && !_guided)
-        {
-            return null;
-        }
+        var offset = new string(' ', Math.Max(0, (inner - block.Max(Output.VisibleLength)) / 2));
 
-        if (name is "capabilities")
-        {
-            return AskCapabilities(required);
-        }
-
-        Console.Error.Write(suggestion is not null
-            ? $"  {name} {Output.Dim($"[{suggestion}]")}: "
-            : required ? $"  {name}: " : $"  {name} {Output.Dim("(optional)")}: ");
-
-        var answer = Console.ReadLine();
-        return string.IsNullOrWhiteSpace(answer) ? suggestion : answer;
+        return block.Select(line => offset + line);
     }
 
-    public bool Confirm(string action)
+    private static string Version()
     {
-        Console.Error.Write($"  {action}? {Output.Dim("[y/N]")} ");
-        return Console.ReadLine()?.Trim() is "y" or "Y" or "yes";
+        var assembly = typeof(InteractiveShell).Assembly;
+        var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? assembly.GetName().Version?.ToString()
+            ?? "dev";
+        var metadata = version.IndexOf('+');
+
+        return metadata > 0 ? version[..metadata] : version;
     }
 
-    private static string? AskCapabilities(bool required)
+    private static async Task<string?> UseAsync(Screen screen, IServiceScopeFactory scopes, Block block, Activity activity, string? key, string? current)
     {
-        var presets = CapabilityCatalog.Presets.ToArray();
+        using var scope = scopes.CreateScope();
 
-        Console.Error.WriteLine($"  capabilities{(required ? string.Empty : " (optional)")}:");
-        Console.Error.WriteLine();
-
-        for (var index = 0; index < presets.Length; index++)
+        if (key is null)
         {
-            var (name, capabilities) = presets[index];
-            var humanOnly = capabilities.Intersect(CapabilityCatalog.HumanOnly, StringComparer.Ordinal).Any();
-            var expansion = string.Join(" + ", capabilities.Select(Output.Capability));
-            var note = humanOnly ? Output.Dim("  (human only)") : string.Empty;
+            var clients = await scope.ServiceProvider.GetRequiredService<IClientService>().ListAsync();
 
-            Console.Error.WriteLine($"    {index + 1}  {name,-8} {expansion}{note}");
+            List<MenuItem> items =
+            [
+                new(string.Empty, "none", Output.Dim("clear the tenant")),
+                .. clients.Select(client => new MenuItem(client.Key, client.Key, client.IsActive ? string.Empty : Output.Red("inactive"))),
+            ];
+
+            using (activity.Suspend())
+            {
+                var initial = Math.Max(0, items.FindIndex(item => item.Value == current));
+                var picked = new SelectMenu("tenant", items, multiple: false, block.Prefix, Block.Indent, initial).Run(screen)
+                    ?? throw new PromptCancelledException();
+
+                key = picked[0].Value;
+            }
+
+            if (key.Length == 0)
+            {
+                block.Line("Context cleared.");
+                return null;
+            }
         }
 
-        Console.Error.WriteLine();
-        Console.Error.WriteLine(Output.Dim("    or type them directly, comma separated"));
-        Console.Error.WriteLine();
-        Console.Error.Write("  > ");
+        var (resolved, name) = await ResolveTenantAsync(scope.ServiceProvider, key);
+        block.Line(name is null ? $"Context: {resolved}" : $"Context: {resolved} {Output.Dim($"({name})")}");
+        return resolved;
+    }
 
-        var answer = Console.ReadLine();
-        if (string.IsNullOrWhiteSpace(answer))
+    private static async Task RunBlockAsync(Screen screen, string label, Func<Block, BlockWriter, Activity, Task> body)
+    {
+        var block = new Block(screen);
+        var writer = new BlockWriter(block);
+        var output = Console.Out;
+        var error = Console.Error;
+
+        using (var activity = new Activity(screen, label))
         {
-            return null;
+            Console.SetOut(writer);
+            Console.SetError(writer);
+
+            try
+            {
+                await body(block, writer, activity);
+            }
+            catch (PromptCancelledException)
+            {
+                writer.Complete();
+                block.Line(Output.Dim("Cancelled."));
+            }
+            catch (Exception exception)
+            {
+                writer.Complete();
+
+                foreach (var message in Output.Describe(exception).Split('\n'))
+                {
+                    block.Line(Output.Red(message.TrimEnd('\r')));
+                }
+            }
+            finally
+            {
+                writer.Complete();
+                Console.SetOut(output);
+                Console.SetError(error);
+            }
         }
 
-        var chosen = answer
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(token => int.TryParse(token, out var index) && index >= 1 && index <= presets.Length
-                ? presets[index - 1].Key
-                : token);
+        if (!block.Started)
+        {
+            block.Line(Output.Dim("(no output)"));
+        }
 
-        return string.Join(',', chosen);
+        screen.Print(string.Empty);
+    }
+
+    private static string? HistoryPath()
+    {
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return root.Length == 0 ? null : Path.Combine(root, "inscribed", "history");
     }
 }

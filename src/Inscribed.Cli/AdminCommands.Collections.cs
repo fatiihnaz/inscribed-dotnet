@@ -163,8 +163,11 @@ internal static partial class AdminCommands
         var key = options.Require("key");
         var force = options.GetBool("force") ?? false;
 
-        if (interaction is not null && !interaction.Confirm($"delete the definition of '{key}'"))
+        if (interaction is not null && !interaction.Confirm($"Delete the definition of '{key}'"))
+        {
+            Output.Note("Cancelled.");
             return;
+        }
 
         await definitions.DeleteAsync(key, force);
         Console.WriteLine($"Deleted the definition of '{key}'. Stored items were left untouched.");

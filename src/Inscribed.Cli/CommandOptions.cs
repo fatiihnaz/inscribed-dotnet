@@ -7,9 +7,14 @@ internal sealed class UsageException : Exception
     public UsageException(string message) : base(message) { }
 }
 
+internal sealed class PromptCancelledException : Exception
+{
+    public PromptCancelledException() : base("Cancelled.") { }
+}
+
 internal interface IInteraction
 {
-    string? Ask(string name, bool required, string? suggestion = null);
+    string? Ask(string name, bool required, string? suggestion, IReadOnlyDictionary<string, string> known);
 
     bool Confirm(string action);
 }
@@ -69,7 +74,7 @@ internal sealed class CommandOptions
             throw new UsageException($"--{name} is required.");
         }
 
-        var entered = _interaction.Ask(name, true, suggestion);
+        var entered = _interaction.Ask(name, true, suggestion, _values);
         if (string.IsNullOrWhiteSpace(entered))
         {
             throw new UsageException($"--{name} is required.");
@@ -88,7 +93,7 @@ internal sealed class CommandOptions
                 return null;
             }
 
-            value = _interaction.Ask(name, false) ?? string.Empty;
+            value = _interaction.Ask(name, false, null, _values) ?? string.Empty;
             _values[name] = value;
         }
 

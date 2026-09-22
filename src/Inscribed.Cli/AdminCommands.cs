@@ -8,7 +8,7 @@ using Inscribed.Domain.Exceptions;
 
 namespace Inscribed.Cli;
 
-internal sealed record CommandSpec(string Name, string Section, string Arguments, string[] Options);
+internal sealed record CommandSpec(string Name, string Section, string Arguments, string[] Options, string Summary);
 
 internal static partial class AdminCommands
 {
@@ -29,26 +29,26 @@ internal static partial class AdminCommands
 
     public static readonly CommandSpec[] Specs =
     [
-        new("client list", "TENANTS", "", []),
-        new("client show", "TENANTS", "--key <key>", ["--key"]),
-        new("client create", "TENANTS", "--key <key> --name <name> [--origins <a,b>]", ["--key", "--name", "--origins"]),
-        new("client update", "TENANTS", "--key <key> --name <name> [--origins <a,b>] [--active <bool>] [--anonymous-read <bool>]", ["--key", "--name", "--origins", "--active", "--anonymous-read"]),
-        new("user list", "PEOPLE", "", []),
-        new("membership list", "PEOPLE", "--client <key>", ["--client"]),
-        new("membership set", "PEOPLE", "--client <key> --email <email> [--capabilities <a,b>]", ["--client", "--email", "--capabilities"]),
-        new("membership remove", "PEOPLE", "--client <key> --email <email>", ["--client", "--email"]),
-        new("service-key list", "KEYS", "--client <key>", ["--client"]),
-        new("service-key create", "KEYS", "--client <key> --name <name> --capabilities <a,b> [--expires <date>]", ["--client", "--name", "--capabilities", "--expires"]),
-        new("service-key revoke", "KEYS", "--client <key> --id <id or prefix>", ["--client", "--id"]),
-        new("signing-key rotate", "KEYS", "", []),
-        new("collection list", "COLLECTIONS", "", []),
-        new("collection show", "COLLECTIONS", "--key <key>", ["--key"]),
-        new("collection validate", "COLLECTIONS", "--file <path>", ["--file"]),
-        new("collection import", "COLLECTIONS", "--file <path> | --dir <path> [--force] [--assign-locale <code>]", ["--file", "--dir", "--force", "--assign-locale"]),
-        new("collection export", "COLLECTIONS", "--key <key> [--out <path>]", ["--key", "--out"]),
-        new("collection delete", "COLLECTIONS", "--key <key> [--force]", ["--key", "--force"]),
-        new("status", "SESSION", "", []),
-        new("doctor", "SESSION", "", []),
+        new("client list", "TENANTS", "", [], "list tenants"),
+        new("client show", "TENANTS", "--key <key>", ["--key"], "show one tenant in full"),
+        new("client create", "TENANTS", "--key <key> --name <name> [--origins <a,b>]", ["--key", "--name", "--origins"], "create a tenant"),
+        new("client update", "TENANTS", "--key <key> --name <name> [--origins <a,b>] [--active <bool>] [--anonymous-read <bool>]", ["--key", "--name", "--origins", "--active", "--anonymous-read"], "update a tenant; omitted flags keep their value"),
+        new("user list", "PEOPLE", "", [], "list users"),
+        new("membership list", "PEOPLE", "--client <key>", ["--client"], "who can reach a tenant, and with what"),
+        new("membership set", "PEOPLE", "--client <key> --email <email> [--capabilities <a,b>]", ["--client", "--email", "--capabilities"], "set a user's capabilities on a tenant"),
+        new("membership remove", "PEOPLE", "--client <key> --email <email>", ["--client", "--email"], "remove a membership"),
+        new("service-key list", "KEYS", "--client <key>", ["--client"], "list a tenant's service keys"),
+        new("service-key create", "KEYS", "--client <key> --name <name> --capabilities <a,b> [--expires <date>]", ["--client", "--name", "--capabilities", "--expires"], "mint a service key"),
+        new("service-key revoke", "KEYS", "--client <key> --id <id or prefix>", ["--client", "--id"], "revoke a service key"),
+        new("signing-key rotate", "KEYS", "", [], "rotate the signing key"),
+        new("collection list", "COLLECTIONS", "", [], "list collection definitions"),
+        new("collection show", "COLLECTIONS", "--key <key>", ["--key"], "show a definition and whether it is valid"),
+        new("collection validate", "COLLECTIONS", "--file <path>", ["--file"], "validate a definition file"),
+        new("collection import", "COLLECTIONS", "--file <path> | --dir <path> [--force] [--assign-locale <code>]", ["--file", "--dir", "--force", "--assign-locale"], "import definitions and report their impact"),
+        new("collection export", "COLLECTIONS", "--key <key> [--out <path>]", ["--key", "--out"], "write a definition out"),
+        new("collection delete", "COLLECTIONS", "--key <key> [--force]", ["--key", "--force"], "delete a definition; items stay"),
+        new("status", "SESSION", "", [], "counts and the active signing key"),
+        new("doctor", "SESSION", "", [], "diagnose database, auth and required claims"),
     ];
 
     public static readonly string[] Commands = [.. Specs.Select(spec => spec.Name)];
@@ -72,8 +72,9 @@ internal static partial class AdminCommands
 
             if (section is "SESSION" && interactive)
             {
-                Output.Note($"  {"use <client>".PadRight(width)}{Output.Dim("fix a tenant so --client and --key fill in; 'use' alone clears")}");
-                Output.Note("  help · exit");
+                var use = Output.Framed ? "'use' alone opens a picker" : "'use' alone clears";
+                Output.Note($"  {"use <client>".PadRight(width)}{Output.Dim($"fix a tenant so --client and --key fill in; {use}")}");
+                Output.Note(Output.Framed ? "  help · clear · exit" : "  help · exit");
             }
         }
 
@@ -275,7 +276,7 @@ internal static partial class AdminCommands
         Output.Detail([.. rows]);
     }
 
-    private static string Count(int total, string noun) => $"{total} {noun}{(total == 1 ? string.Empty : "s")}";
+    internal static string Count(int total, string noun) => $"{total} {noun}{(total == 1 ? string.Empty : "s")}";
 
     private static async Task ListClientsAsync(IClientService clients)
     {
