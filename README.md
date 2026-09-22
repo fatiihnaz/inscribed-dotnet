@@ -594,12 +594,19 @@ It runs **below** the HTTP layer, which is the point: administration needs **no 
 
 Requirements: network access to PostgreSQL and a database whose migrations are already applied (start the API once, or run the `api-migrate` one-shot). Redis is not needed.
 
-From source, with the .NET SDK:
+From source, with the .NET SDK, from the repository root:
 
 ```sh
-export ConnectionStrings__Default="Host=localhost;Port=5432;Database=inscribed_cms;Username=postgres;Password=…"
-dotnet run --project src/Inscribed.Cli -- client create --key my-site --name "My Site"
+dotnet run --project src/Inscribed.Cli                  # the interactive console
+dotnet run --project src/Inscribed.Cli -- client list   # a single command
 ```
+
+There is nothing to export. With no `ConnectionStrings__Default` in the environment, the CLI reads `.env` the
+way Compose does: `DB_PASSWORD` becomes a connection to the published port on `localhost`, and the `AUTH_*`
+entries come along, so `doctor` diagnoses the configuration the API actually runs with. `DB_HOST`, `DB_PORT`,
+`DB_NAME` and `DB_USER` override the parts that default to the packaged database, and a
+`ConnectionStrings__Default` of your own, in the environment or in `.env`, replaces the lot. The environment
+always wins over the file.
 
 In Docker the CLI ships inside the same image as the API, so no SDK and no published database port are needed. The repository has a wrapper that picks the right way in:
 
@@ -634,48 +641,61 @@ docker compose run --rm admin client list                      # one-shot, works
 | `service-key revoke --client --id` | revoke a key immediately; any unambiguous id prefix works |
 | `signing-key rotate` | rotate the RS256 signing key |
 
-Started without arguments, the CLI opens an interactive console instead of running a single command. It asks for whatever a command needs but did not receive, so `client create` on its own walks through the tenant key, the name and the optional origins one field at a time. A command that already carries flags is taken at face value: only genuinely missing **required** values are asked for, never the optional ones. Revoking a key, removing a membership and rotating the signing key ask for confirmation here; run non-interactively and they proceed unattended, so scripts keep working. The banner names the database you are pointed at, which is the cheapest guard against administering the wrong environment. `help` prints the table above, `exit` (or end-of-input) leaves.
+Started without arguments in a terminal, the CLI opens an interactive console instead of running a single command. It asks for whatever a command needs but did not receive, so `client create` on its own walks through the tenant key, the name and the optional origins one field at a time. A command that already carries flags is taken at face value: only genuinely missing **required** values are asked for, never the optional ones. Where the answer is an existing record (a tenant, a collection, a user, a member, a service key) or a yes/no, the console offers a menu instead of a text field, so nothing has to be recalled or retyped. Revoking a key, removing a membership, deleting a definition and rotating the signing key ask for confirmation here, with **No** preselected; run non-interactively and they proceed unattended, so scripts keep working. The banner names the database you are pointed at, which is the cheapest guard against administering the wrong environment. `help` prints the table above, `clear` redraws the screen, and `exit` or Ctrl+D leaves.
 
-`use <client>` fixes a tenant for the rest of the session: the prompt shows it and `--client` (or `--key`, for `client show` and `client update`) fills itself in. `use` on its own clears it. Where a value has a known set, the console offers it rather than expecting recall, so `service-key create` lists the capability presets and takes either a number or the names.
+`use <client>` fixes a tenant for the rest of the session: the footer under the input shows it, and `--client` (or `--key`, for `client show` and `client update`) fills itself in. `use` on its own opens a tenant picker, where `none` clears the context.
 
-The prompt is a real line editor: **Tab** completes commands, options, tenant keys and capabilities from the position you are at, **↑/↓** walk the session's history, ←/→/Home/End edit in place, Ctrl+C abandons the line and Ctrl+D on an empty line leaves. When input is piped the editor steps aside and lines are read verbatim, so scripted sessions behave exactly as before.
+The console clears the screen when it starts, and again when it leaves, and lays itself out like a chat: the banner at the top, the input box on the bottom rows, and command output filling the space between from the top down. Once output reaches the box it scrolls into the terminal's own history, so scrolling up shows earlier output until the next keystroke brings the box back into view. The banner is centred in the terminal, with no frame around it, and carries a block-letter wordmark on terminals at least 66 columns wide, a compact one down to 25. The input is a line editor with completion. As you type, a list above the input offers whatever fits the position you are at: command groups and actions with a one-line summary, options with their placeholder, tenant and collection keys, and capabilities. **Tab** accepts the highlighted entry, **↑/↓** move through the list while it is open and walk the history otherwise, **Enter** runs the line (or accepts an entry you moved to), and **Esc** dismisses the list; a second Esc clears the line. History survives the session in `inscribed/history` under the user's application data directory (`%APPDATA%` on Windows, `~/.config` elsewhere) whenever that location is writable. ←/→ and Home/End move the cursor, Ctrl+←/→ jump a word, and Ctrl+W, Ctrl+U and Ctrl+K delete the previous word, everything before the cursor and everything after it. Ctrl+C clears the line; on an empty line a second Ctrl+C leaves.
+
+Each command prints its output as a block under its own header, wrapped to the terminal, and a slow one shows a spinner until it answers. When input is piped or stderr is redirected, the console falls back to a plain line-by-line session with numbered choices, so scripted sessions behave exactly as before.
 
 ```
-$ docker compose run --rm admin
+$ ./scripts/admin
 
-  Inscribed admin console
-  db:5432/inscribed_cms · 3 clients · 2 users · 4 active keys · kid a7f3c9
+        ██╗███╗   ██╗███████╗ ██████╗██████╗ ██╗██████╗ ███████╗██████╗
+        ██║████╗  ██║██╔════╝██╔════╝██╔══██╗██║██╔══██╗██╔════╝██╔══██╗
+        ██║██╔██╗ ██║███████╗██║     ██████╔╝██║██████╔╝█████╗  ██║  ██║
+        ██║██║╚██╗██║╚════██║██║     ██╔══██╗██║██╔══██╗██╔══╝  ██║  ██║
+        ██║██║ ╚████║███████║╚██████╗██║  ██║██║██████╔╝███████╗██████╔╝
+        ╚═╝╚═╝  ╚═══╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═════╝ ╚══════╝╚═════╝
 
-  'help' for commands · 'use <client>' to pick a tenant · 'exit' to leave
+                             admin console · 2.1.0
 
-inscribed> use my-site
+                 database  db:5432/inscribed_cms
+                 auth      built-in issuer · kid a7f3c9
+                 totals    3 tenants · 2 users · 4 active keys
 
-  Context: my-site (My Site)
+            help lists commands · use picks a tenant · tab completes
 
-inscribed my-site> service-key create
-  name: nightly-build
-  capabilities:
+● use my-site
+  ⎿  Context: my-site (My Site)
 
-    1  editor   content:read + content:write
-    2  render   content:read
-    3  deploy   schema:sync
-    4  admin    client:admin  (human only)
+● service-key create
+  ⎿  name: nightly-build
+     capabilities: deploy
+     expires: (none)
+     ink_live_7Kd93mQx1vNfR8sT2wYbE5hJ4uZaC6pL
+     Created service key 9c2e4a71-5b3d-4e8a-9f61-2d7c0b8e4a13; the key above is
+     shown once and cannot be recovered.
 
-    or type them directly, comma separated
+● service-key list
+  ⎿  ID        PREFIX               NAME           STATE   AGE  LAST USED  CAPABILITIES
+     ────────  ───────────────────  ─────────────  ──────  ───  ─────────  ────────────
+     9c2e4a71  ink_live_7Kd93mQ...  nightly-build  active  2d   4h         schema:sync
+     0f1c7a22  ink_live_Qm4x8Lp...  old-ci         active  2y   never      content:read
 
-  > 3
-  expires (optional):
-ink_live_7Kd93mQx1vNfR8sT2wYbE5hJ4uZaC6pL
+     2 keys · 2 active
 
-inscribed my-site> service-key list
-
-  ID        PREFIX               NAME           STATE   AGE  LAST USED  CAPABILITIES
-  ────────  ───────────────────  ─────────────  ──────  ───  ─────────  ────────────
-  9c2e4a71  ink_live_7Kd93mQ...  nightly-build  active  2d   4h         schema:sync
-  0f1c7a22  ink_live_Qm4x8Lp...  old-ci         active  2y   never      content:read
-
-  2 keys · 2 active
+  revoke  revoke a service key
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ > service-key re                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  ◆ my-site                                  ↑↓ select · tab accept · esc dismiss
 ```
+
+The capability question in `service-key create` and `membership set` is a checklist: presets and single capabilities are listed together, **Space** ticks an entry, **Enter** confirms (with nothing ticked, it takes the highlighted row), and entries a service key may not hold are shown but cannot be picked.
+
+The console draws with box-drawing and symbol glyphs, so it needs a terminal font that has them, and paints its accent in 24-bit colour, falling back to the nearest 256-colour entry where `COLORTERM` does not advertise truecolor support. Windows Terminal, the VS Code terminal and common macOS and Linux terminals do; the legacy Windows console host may show placeholder boxes.
 
 A key's age and last use are the signals that decide whether it should still exist, so `service-key list` carries both as compact relative times. An active key that has gone unused for over ninety days, or has never been used at all, is highlighted: nothing enforces a rotation policy, but the list stops hiding the candidates for one.
 
