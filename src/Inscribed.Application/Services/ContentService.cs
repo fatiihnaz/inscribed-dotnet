@@ -208,16 +208,16 @@ public sealed class ContentService : IContentService
                     continue;
                 }
 
-                if (blockType == BlockType.File && !FileUrlRule.Accepts(item.DefaultValue))
+                if (blockType == BlockType.File && FindUnsafeFileSeed(item) is { } field)
                 {
-                    invalid.Add($"Block '{slug}/{blockPath}': 'defaultValue.url' {FileUrlRule.Expectation}.");
+                    invalid.Add($"Block '{slug}/{blockPath}': '{field}.url' {FileUrlRule.Expectation}.");
                     continue;
                 }
 
                 manifestPaths.Add((slug, blockPath));
 
                 foreach (var locale in targetLocales)
-                    desiredByKey[(locale, slug, blockPath)] = new DesiredBlock(blockType, item.DefaultValue, item.SortOrder);
+                    desiredByKey[(locale, slug, blockPath)] = new DesiredBlock(blockType, SeedFor(item, locale), item.SortOrder);
             }
         }
 
@@ -319,6 +319,20 @@ public sealed class ContentService : IContentService
             .ToList();
 
         return new SyncResultResponse(results, prunedSlugs.ToList());
+    }
+
+    private static JsonNode SeedFor(ManifestBlockItem item, string? locale) =>
+        locale is not null && item.DefaultValues?.GetValueOrDefault(locale) is { } seed ? seed : item.DefaultValue;
+
+    private static string? FindUnsafeFileSeed(ManifestBlockItem item)
+    {
+        if (!FileUrlRule.Accepts(item.DefaultValue))
+            return "defaultValue";
+
+        return item.DefaultValues?
+            .Where(seed => !FileUrlRule.Accepts(seed.Value))
+            .Select(seed => $"defaultValues.{seed.Key}")
+            .FirstOrDefault();
     }
 
     private sealed class SlugCounts

@@ -6,5 +6,6 @@ public sealed record ManifestBlockItem(
     string BlockPath,
     string BlockType,
     JsonNode DefaultValue,
-    int SortOrder
+    int SortOrder,
+    IReadOnlyDictionary<string, JsonNode?>? DefaultValues = null
 );

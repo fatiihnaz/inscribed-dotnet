@@ -234,7 +234,7 @@ A page is a `slug` plus a flat list of **content blocks**. Each block has a `blo
 
 Blocks and collection fields share one vocabulary, so a panel widget written for a field type renders the block type of the same name. An unknown `blockType` in a manifest is a **400** naming the block and listing the valid types, because discovery reports whatever the JSX says and a typo would otherwise leave a block that quietly never renders.
 
-Block values are stored as sent, with one exception: a `File` block's `url` must be empty, an `http:` or `https:` address, or a path starting with `/`. A site renders it straight into a link, so a `javascript:` or `data:` address is a **400** on publish and in a manifest `defaultValue` rather than a script waiting in a reader's browser.
+Block values are stored as sent, with one exception: a `File` block's `url` must be empty, an `http:` or `https:` address, or a path starting with `/`. A site renders it straight into a link, so a `javascript:` or `data:` address is a **400** on publish and in a manifest `defaultValue` or `defaultValues` entry rather than a script waiting in a reader's browser.
 
 `GET /cms/content` reads one page; `GET /cms/content/all` reads everything the client has in the requested locale in one call, shaped as `{ locale, global, pages }`, each entry a `{ slug, blocks }`. Both follow the same credential rule, so the whole-site read carries `draftValue` only for a `content:write` caller and is otherwise published values alone.
 
@@ -270,10 +270,18 @@ Sync is the single authority for the list; the admin console and CLI show it rea
 Each sync then reconciles **one row per block per locale**:
 
 - rows that predate localization are **adopted** into the first locale, keeping their values and versions, so existing content lands in the default language without a backfill or a guess about what language it was in;
-- the remaining locales materialize at `defaultValue`;
+- the remaining locales materialize at their seed: the block's `defaultValues` entry for that language when there is one, `defaultValue` otherwise;
 - adding a language later is just re-running sync with a longer list.
 
-There is **no fallback chain**. An untranslated block renders its `defaultValue`, because sync already put a real row there. A missing translation is meant to be visible rather than quietly wearing another language's text, and it keeps reads a single indexed lookup with no coalesce.
+A block that should start out differently per language names its seeds in `defaultValues`, keyed by locale; `defaultValue` still seeds every language the map leaves out:
+
+```json
+{ "blockPath": "hero.title", "blockType": "ShortText", "defaultValue": "Welcome", "defaultValues": { "tr": "Hoş geldiniz" }, "sortOrder": 0 }
+```
+
+Seeds apply when a row is created, for a new block or a language added later. A restored row keeps what it had, and so does an existing one.
+
+There is **no fallback chain**. An untranslated block renders its seed, because sync already put a real row there. A missing translation is meant to be visible rather than quietly wearing another language's text, and it keeps reads a single indexed lookup with no coalesce.
 
 Reads and writes disagree about an unknown `?locale=` on purpose:
 
