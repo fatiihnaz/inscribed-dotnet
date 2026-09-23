@@ -251,6 +251,8 @@ Editors publish with `PUT /cms/content`, sending each block's expected `version`
 - archived blocks that reappear are **restored** with their old values intact;
 - `blockType` and `sortOrder` are updated in place; published **values are never touched** by sync.
 
+Sync never changes a block's `version` either: reordering, retyping, archiving and restoring all leave it where it was, so only a publish moves it. A deploy therefore never turns the next publish of an editor who has the page open into a **409**.
+
 Slugs entirely absent from the manifest are archived and reported back as `prunedSlugs`. Because the reconcile is whole-state, sync is **idempotent**: running the same manifest twice is a no-op.
 
 ### Locales

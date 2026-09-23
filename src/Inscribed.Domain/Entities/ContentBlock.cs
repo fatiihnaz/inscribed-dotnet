@@ -86,7 +86,6 @@ public sealed class ContentBlock : Entity
         SortOrder = sortOrder;
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
-        Version += 1;
         return true;
     }
 
@@ -119,7 +118,6 @@ public sealed class ContentBlock : Entity
         ArchivedAt = utcNow;
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
-        Version += 1;
     }
 
     public void Restore(string updatedBy, DateTime utcNow)
@@ -135,6 +133,5 @@ public sealed class ContentBlock : Entity
         ArchivedAt = null;
         UpdatedBy = updatedBy;
         UpdatedAt = utcNow;
-        Version += 1;
     }
 }
