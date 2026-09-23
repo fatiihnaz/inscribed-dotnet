@@ -255,6 +255,8 @@ Sync never changes a block's `version` either: reordering, retyping, archiving a
 
 Slugs entirely absent from the manifest are archived and reported back as `prunedSlugs`. Because the reconcile is whole-state, sync is **idempotent**: running the same manifest twice is a no-op.
 
+**Reseeding.** By default sync never rewrites an existing value, so a changed seed only reaches rows created after the change. `?reseed=true` also rewrites a row to its current seed when nobody has touched it: it is still on its first version, no editor has a draft of it in that language, and its value differs from the seed (compared as JSON, so a different key order is not a difference). The row keeps its version, which is what lets a later reseed find it again. Since only a publish leaves the first version, a restored row nobody ever published is reseeded like any other. A publish landing between the read and the write turns the sync into a **409** instead of being overwritten, and nothing from that sync is applied, so re-running it is safe. With the flag, every entry in `results` carries a `reseeded` count, even when it is 0, and a reseeded block is not also counted as `unchanged`; without it the field is absent.
+
 ### Locales
 
 Locale is **optional everywhere**. A client that sends no `locale` behaves exactly as it did before the feature existed, and the migration that introduced it touches no rows.
@@ -281,7 +283,7 @@ A block that should start out differently per language names its seeds in `defau
 { "blockPath": "hero.title", "blockType": "ShortText", "defaultValue": "Welcome", "defaultValues": { "tr": "Hoş geldiniz" }, "sortOrder": 0 }
 ```
 
-Seeds apply when a row is created, for a new block or a language added later. A restored row keeps what it had, and so does an existing one.
+Seeds apply when a row is created, for a new block or a language added later. A restored row keeps what it had, and an existing one changes only through [`?reseed=true`](#sync-the-manifest-reconcile).
 
 There is **no fallback chain**. An untranslated block renders its seed, because sync already put a real row there. A missing translation is meant to be visible rather than quietly wearing another language's text, and it keeps reads a single indexed lookup with no coalesce.
 
@@ -550,7 +552,7 @@ All routes return JSON; errors are RFC 7807 problem details (see [Error response
 | `PUT /cms/content?locale=` | ContentWrite | publish block values (optimistic concurrency) |
 | `PUT /cms/draft?locale=` | ContentWrite | merge blocks into the caller's page draft |
 | `DELETE /cms/draft?slug=&locale=` | ContentWrite | discard the caller's whole page draft |
-| `POST /cms/sync?locales=` | SchemaSync | whole-state manifest reconcile; also declares the client's locales |
+| `POST /cms/sync?locales=&reseed=` | SchemaSync | whole-state manifest reconcile; also declares the client's locales; `reseed=true` rewrites untouched rows to their seed |
 
 **Collections**
 

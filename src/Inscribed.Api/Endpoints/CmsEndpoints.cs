@@ -148,7 +148,7 @@ public static class CmsEndpoints
             return Results.NoContent();
         }).RequireAuthorization("ContentWrite");
 
-        group.MapPost("/sync", async (HttpContext context, string? locales, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IClientService clientService, IContentService service, CancellationToken ct) =>
+        group.MapPost("/sync", async (HttpContext context, string? locales, bool? reseed, [FromBody] IReadOnlyList<SyncManifestRequest> manifests, IClientService clientService, IContentService service, CancellationToken ct) =>
         {
             var client = context.GetClient();
 
@@ -162,7 +162,7 @@ public static class CmsEndpoints
                     locales.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                     ct);
 
-            var response = await service.SyncAsync(client.Key, effective, manifests, SyncedByDeployPipeline, ct);
+            var response = await service.SyncAsync(client.Key, effective, manifests, reseed is true, SyncedByDeployPipeline, ct);
             return Results.Ok(response);
         }).RequireAuthorization("SchemaSync");
 

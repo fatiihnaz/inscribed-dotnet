@@ -15,7 +15,7 @@ public interface IContentService
 
     Task<UpdatePageResponse> UpdatePageAsync(string clientId, string? locale, UpdatePageRequest request, string updatedBy, CancellationToken cancellationToken = default);
 
-    Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default);
+    Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, bool reseed, string syncedBy, CancellationToken cancellationToken = default);
 
     Task SaveDraftAsync(string clientId, string? locale, string userId, UpdatePageRequest request, CancellationToken cancellationToken = default);
 

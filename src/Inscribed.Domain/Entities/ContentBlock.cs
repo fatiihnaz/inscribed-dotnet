@@ -63,6 +63,24 @@ public sealed class ContentBlock : Entity
         Version += 1;
     }
 
+    public bool CanReseed(JsonNode seed) => Version == 1 && !JsonNode.DeepEquals(Value, seed);
+
+    public bool Reseed(JsonNode seed, string updatedBy, DateTime utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(seed);
+        ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
+
+        if (!CanReseed(seed))
+        {
+            return false;
+        }
+
+        Value = seed;
+        UpdatedBy = updatedBy;
+        UpdatedAt = utcNow;
+        return true;
+    }
+
     public void Reorder(int sortOrder, string updatedBy, DateTime utcNow)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);

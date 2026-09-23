@@ -182,7 +182,7 @@ public sealed class ContentService : IContentService
         return new UpdatePageResponse(pending.Count, unchanged);
     }
 
-    public async Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, string syncedBy, CancellationToken cancellationToken = default)
+    public async Task<SyncResultResponse> SyncAsync(string clientId, IReadOnlyList<string> locales, IReadOnlyList<SyncManifestRequest> manifests, bool reseed, string syncedBy, CancellationToken cancellationToken = default)
     {
         var utcNow = DateTime.UtcNow;
 
@@ -251,6 +251,10 @@ public sealed class ContentService : IContentService
             }
         }
 
+        var reseedable = reseed
+            ? await FindReseedableAsync(clientId, existing, desiredByKey, cancellationToken)
+            : [];
+
         var counts = requestSlugs.ToDictionary(slug => slug, _ => new SlugCounts());
         var prunedSlugs = new HashSet<string>();
 
@@ -265,14 +269,17 @@ public sealed class ContentService : IContentService
                 if (block.IsArchived)
                 {
                     block.Restore(syncedBy, utcNow);
-                    block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
                     counts[block.Slug].Restored.Add(block.BlockPath);
                 }
                 else
                 {
-                    block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
                     counts[block.Slug].Unchanged.Add(block.BlockPath);
                 }
+
+                if (reseedable.Contains(block) && block.Reseed(item.Value, syncedBy, utcNow))
+                    counts[block.Slug].Reseeded.Add(block.BlockPath);
+
+                block.UpdateDefinition(item.BlockType, item.SortOrder, syncedBy, utcNow);
             }
             else if (!block.IsArchived)
             {
@@ -314,11 +321,30 @@ public sealed class ContentService : IContentService
                 kvp.Key,
                 kvp.Value.Created.Count,
                 kvp.Value.Deleted.Count,
-                kvp.Value.Unchanged.Count,
-                kvp.Value.Restored.Count))
+                kvp.Value.Unchanged.Except(kvp.Value.Reseeded).Count(),
+                kvp.Value.Restored.Count,
+                reseed ? kvp.Value.Reseeded.Count : null))
             .ToList();
 
         return new SyncResultResponse(results, prunedSlugs.ToList());
+    }
+
+    private async Task<HashSet<ContentBlock>> FindReseedableAsync(
+        string clientId,
+        IEnumerable<ContentBlock> existing,
+        IReadOnlyDictionary<(string? Locale, string Slug, string BlockPath), DesiredBlock> desiredByKey,
+        CancellationToken cancellationToken)
+    {
+        var candidatesByPage = existing
+            .Where(block => desiredByKey.TryGetValue((block.Locale, block.Slug, block.BlockPath), out var item) && block.CanReseed(item.Value))
+            .GroupBy(block => (block.Locale, block.Slug));
+
+        var pages = await Task.WhenAll(candidatesByPage.Select(async page =>
+            (Candidates: page, Drafted: await _draftService.GetDraftedBlockPathsAsync(clientId, page.Key.Locale, page.Key.Slug, cancellationToken))));
+
+        return pages
+            .SelectMany(page => page.Candidates.Where(block => !page.Drafted.Contains(block.BlockPath)))
+            .ToHashSet();
     }
 
     private static JsonNode SeedFor(ManifestBlockItem item, string? locale) =>
@@ -341,6 +367,7 @@ public sealed class ContentService : IContentService
         public readonly HashSet<string> Deleted = new(StringComparer.Ordinal);
         public readonly HashSet<string> Unchanged = new(StringComparer.Ordinal);
         public readonly HashSet<string> Restored = new(StringComparer.Ordinal);
+        public readonly HashSet<string> Reseeded = new(StringComparer.Ordinal);
     }
 
     private sealed record DesiredBlock(BlockType BlockType, JsonNode Value, int SortOrder);

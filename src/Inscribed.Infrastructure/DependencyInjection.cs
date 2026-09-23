@@ -38,6 +38,7 @@ public static class DependencyInjection
     {
         var redisConnectionString = configuration.GetConnectionString("Redis") ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured.");
         services.AddStackExchangeRedisCache(options => options.Configuration = redisConnectionString);
+        services.AddSingleton(_ => new RedisKeyScanner(redisConnectionString));
         services.AddScoped<IDraftService, RedisDraftService>();
         services.AddScoped<ICollectionDraftService, RedisCollectionDraftService>();
 

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Inscribed.Application.Contracts.Responses;
 
 public sealed record SyncSlugResult(
@@ -5,5 +7,6 @@ public sealed record SyncSlugResult(
     int Created,
     int Deleted,
     int Unchanged,
-    int Restored
+    int Restored,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Reseeded = null
 );

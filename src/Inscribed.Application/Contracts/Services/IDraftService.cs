@@ -10,5 +10,7 @@ public interface IDraftService
 
     Task<IReadOnlyList<DraftBlock>?> GetDraftAsync(string clientId, string? locale, string userId, string slug, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlySet<string>> GetDraftedBlockPathsAsync(string clientId, string? locale, string slug, CancellationToken cancellationToken = default);
+
     Task DeleteDraftAsync(string clientId, string? locale, string userId, string slug, CancellationToken cancellationToken = default);
 }
