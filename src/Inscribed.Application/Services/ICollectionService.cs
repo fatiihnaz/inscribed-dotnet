@@ -20,6 +20,7 @@ public interface ICollectionService
         ClaimsPrincipal user,
         string userId,
         IDictionary<string, string>? filters,
+        string? search,
         string? sort,
         bool archived,
         int offset,

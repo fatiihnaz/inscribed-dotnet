@@ -37,5 +37,6 @@ public sealed record CollectionListResponse(
     int Total,
     int Offset,
     int Limit,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<VirtualItemResponse>? VirtualItems = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<VirtualItemResponse>? VirtualItems = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Approximate = false
 );

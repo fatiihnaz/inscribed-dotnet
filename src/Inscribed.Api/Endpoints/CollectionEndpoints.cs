@@ -14,7 +14,7 @@ public static class CollectionEndpoints
     private const int MaxLookupLimit = 100;
 
     private static readonly HashSet<string> ReservedQueryKeys =
-        new(StringComparer.OrdinalIgnoreCase) { "offset", "limit", "locale", "sort", "archived" };
+        new(StringComparer.OrdinalIgnoreCase) { "offset", "limit", "locale", "sort", "archived", "q" };
 
     public static IEndpointRouteBuilder MapCollectionEndpoints(this IEndpointRouteBuilder app)
     {
@@ -54,12 +54,13 @@ public static class CollectionEndpoints
             var locale = query["locale"].ToString();
             var sort = query["sort"].ToString();
             var archived = bool.TryParse(query["archived"], out var a) && a;
+            var search = query["q"].ToString();
 
             var filters = query
                 .Where(kv => !ReservedQueryKeys.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
 
-            var result = await service.ListAsync(key, locale, context.User, userId, filters, sort, archived, offset, limit, ct);
+            var result = await service.ListAsync(key, locale, context.User, userId, filters, search, sort, archived, offset, limit, ct);
             return Results.Ok(result);
         }).AllowAnonymous();
 

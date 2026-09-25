@@ -370,6 +370,27 @@ Missing values sort last in both directions, which costs one extra `IS NULL` ord
 
 Ties always break on `slug`, so paging stays stable when rows share a value. An unknown key, an unsortable field, or an unknown direction is a **400** listing what is available, rather than a silent fallback.
 
+### Searching
+
+`?q=` narrows a listing to the items whose `displayField` or slug contains every word of the query:
+
+```http
+GET /cms/collections/news/?q=sinav istanbul&locale=tr
+
+200 → { "items": [ … "İstanbul Sınavı" … ], "total": 1, "offset": 0, "limit": 50 }
+```
+
+- **Folded on both sides.** The stored text and the query both go through `unaccent(lower(…))` before they are compared, so case and diacritics stop mattering: `isik`, `ışık` and `IŞIK` all find "Işık". Plain `ILIKE` cannot do this under a non-Turkish collation, where `lower('I')` is `i` and a lowercase `ışık` never matches a capitalised `Işık`. The query is folded by the same database function as the data rather than in .NET, so the answer does not depend on the server's culture.
+- **Words, in any order.** The query splits on whitespace and every word must appear in the title or in the slug; only the first 8 words count. `sinav istanbul` finds "İstanbul Sınavı".
+- **Most relevant first.** While searching, a rank comes ahead of `?sort=`: the title equal to the query, then the title starting with it, then a word of the title starting with it, then the rest. `?sort=` orders the rows inside each rank, and ties still break on `slug`.
+- **Close matches when nothing matches.** When no item contains the words, the listing retries with trigram similarity (`word_similarity` of at least 0.5 against the title, or the slug where there is none), most similar first, and marks the response `"approximate": true` so a client can present the rows as suggestions: `kopke` finds "köpek". The flag is absent on an exact answer. A query shorter than three characters skips the retry, because it has too few trigrams to resemble anything in particular.
+
+Filters, `?locale=`, `?archived=` and paging apply as usual, and `total` counts matches rather than the collection. `virtualItems` is not searched: it comes back whole at every offset, so a client already holds all of it and can narrow it locally.
+
+Search reads **published** data. An item renamed only in a draft is found under its published title until the draft is published, because drafts live in Redis and the query runs in PostgreSQL.
+
+Like a schema-field sort, both passes scan the collection's rows rather than an index. They need the `unaccent` and `pg_trgm` extensions, which the `AddSearchExtensions` migration installs; both ship with PostgreSQL's contrib modules and are trusted extensions since PostgreSQL 13, so a database owner can install them on managed hosts without superuser rights.
+
 ### What an item response carries
 
 Every item carries `createdAt` and `updatedAt`. Editor reads add `isArchived` / `archivedAt` where they apply; anonymous reads never see them.
@@ -427,13 +448,13 @@ GET /cms/collections/team-members/lookup?slugs=ahmet-yilmaz,ayse-kaya
 200 → { "items": [ { "slug": "ahmet-yilmaz", "label": "Ahmet Yılmaz" } ], "total": 3 }
 ```
 
-`q` matches **case-insensitively anywhere** in the `displayField` (the slug, when there is none) and `total` counts every match, not the page. `slugs` resolves what is already chosen and ignores `locale`, because a slug is unique in the collection whatever language the item is written in. Sending both is **400**: one searches, the other resolves, and a request that does both says nothing about which answer it wants. Sending neither returns the first page, which is what a picker opens on. `limit` defaults to 20 and clamps to 100; `slugs` accepts at most 100 entries.
+`q` matches the way the listing's [`?q=`](#searching) does, folded and word by word across the `displayField` and the slug, most relevant first, and `total` counts every match, not the page. It never falls back to close matches: the response has no `approximate` flag, so a picker could not tell a near miss from a hit. `slugs` resolves what is already chosen and ignores `locale`, because a slug is unique in the collection whatever language the item is written in. Sending both is **400**: one searches, the other resolves, and a request that does both says nothing about which answer it wants. Sending neither returns the first page, which is what a picker opens on. `limit` defaults to 20 and clamps to 100; `slugs` accepts at most 100 entries.
 
 A slug that does **not** come back from `?slugs=` is a reference whose target is gone. That is the answer, not a failure: a client renders it as "not found" and offers to clear it.
 
 This is deliberately not `GET /{key}/{slug}`. A picker needs a name and something to store, not the record: item responses carry drafts, archived rows and `virtualItems`, none of which belong in a list nobody is editing, and one request per chosen slug would be a request per row of a table.
 
-**Filters stay exact.** `?field=value` on the listing endpoint is equality and nothing else; contains-matching lives only in `lookup`, on the one field a definition nominated. Making filters contains-match would be meaningless for booleans and numbers, and it would silently change what every `filter=` binding already in the field renders.
+**Filters stay exact.** `?field=value` on the listing endpoint is equality and nothing else; contains-matching lives only in [`?q=`](#searching) and `lookup`, on the one field a definition nominated and the slug. Making filters contains-match would be meaningless for booleans and numbers, and it would silently change what every `filter=` binding already in the field renders.
 
 ### Mirrored fields
 

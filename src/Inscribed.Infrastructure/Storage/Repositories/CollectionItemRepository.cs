@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Inscribed.Application.Contracts.Repositories;
@@ -7,7 +8,9 @@ namespace Inscribed.Infrastructure.Storage.Repositories;
 
 internal sealed class CollectionItemRepository : ICollectionItemRepository
 {
-    private const string EscapeCharacter = "\\";
+    private const float SimilarityThreshold = 0.5f;
+
+    private const int MinSimilarPhraseLength = 3;
 
     private readonly CmsDbContext _context;
 
@@ -29,10 +32,12 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
+    public async Task<(IReadOnlyList<CollectionItem> Items, int Total, bool Approximate)> ListPagedAsync(
         string key,
         string? locale,
         JsonObject? filterContainment,
+        CollectionSearch? search,
+        string? displayField,
         CollectionSort sort,
         bool archived,
         int offset,
@@ -53,17 +58,53 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
         if (filterJson is not null)
             query = query.Where(x => EF.Functions.JsonContains(x.Data, filterJson));
 
-        var total = await query.CountAsync(cancellationToken);
-        var items = await Order(query, sort).Skip(offset).Take(limit).ToListAsync(cancellationToken);
+        if (search is null)
+        {
+            var total = await query.CountAsync(cancellationToken);
+            var items = await Order(query, sort).Skip(offset).Take(limit).ToListAsync(cancellationToken);
 
-        return (items, total);
+            return (items, total, false);
+        }
+
+        var matched = Match(query, search, displayField);
+        var matchedTotal = await matched.CountAsync(cancellationToken);
+
+        if (matchedTotal > 0)
+        {
+            var items = await Order(matched, sort, Rank(search.Phrase, displayField)).Skip(offset).Take(limit).ToListAsync(cancellationToken);
+
+            return (items, matchedTotal, false);
+        }
+
+        if (search.Phrase.Length < MinSimilarPhraseLength)
+            return ([], 0, false);
+
+        var phrase = search.Phrase;
+        var similar = query
+            .Select(x => new
+            {
+                Item = x,
+                Score = CmsDbFunctions.WordSimilarity(CmsDbFunctions.Fold(phrase), CmsDbFunctions.Fold(CmsDbFunctions.JsonText(x.Data, displayField) ?? x.Slug)),
+            })
+            .Where(x => x.Score >= SimilarityThreshold);
+
+        var similarTotal = await similar.CountAsync(cancellationToken);
+        var similarItems = await similar
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Item.Slug)
+            .Skip(offset)
+            .Take(limit)
+            .Select(x => x.Item)
+            .ToListAsync(cancellationToken);
+
+        return (similarItems, similarTotal, similarTotal > 0);
     }
 
     public async Task<(IReadOnlyList<CollectionItem> Items, int Total)> LookupAsync(
         string key,
         string? locale,
         string? displayField,
-        string? contains,
+        CollectionSearch? search,
         IReadOnlyCollection<string>? slugs,
         int limit,
         CancellationToken cancellationToken = default)
@@ -79,21 +120,16 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
             if (locale is not null)
                 query = query.Where(x => x.Locale == locale);
 
-            if (!string.IsNullOrWhiteSpace(contains))
-            {
-                var pattern = $"%{Escape(contains)}%";
-
-                query = displayField is null
-                    ? query.Where(x => EF.Functions.ILike(x.Slug, pattern, EscapeCharacter))
-                    : query.Where(x => EF.Functions.ILike(CmsDbFunctions.JsonText(x.Data, displayField)!, pattern, EscapeCharacter));
-            }
+            if (search is not null)
+                query = Match(query, search, displayField);
         }
 
         var total = await query.CountAsync(cancellationToken);
 
+        var ranked = search is null ? null : query.OrderBy(Rank(search.Phrase, displayField));
         var ordered = displayField is null
-            ? query.OrderBy(x => x.Slug)
-            : query.OrderBy(x => CmsDbFunctions.JsonText(x.Data, displayField)).ThenBy(x => x.Slug);
+            ? By(query, ranked, x => x.Slug)
+            : By(query, ranked, x => CmsDbFunctions.JsonText(x.Data, displayField)).ThenBy(x => x.Slug);
 
         var items = await ordered.Take(limit).ToListAsync(cancellationToken);
 
@@ -208,32 +244,53 @@ internal sealed class CollectionItemRepository : ICollectionItemRepository
         return _context.SaveChangesAsync(cancellationToken);
     }
 
-    private static string Escape(string value) =>
-        value.Replace(EscapeCharacter, EscapeCharacter + EscapeCharacter).Replace("%", "\\%").Replace("_", "\\_");
-
-    private static IQueryable<CollectionItem> Order(IQueryable<CollectionItem> query, CollectionSort sort)
+    private static IQueryable<CollectionItem> Match(IQueryable<CollectionItem> query, CollectionSearch search, string? displayField)
     {
-        if (sort.Field == CollectionSortField.DataField)
-            return OrderByDataField(query, sort.DataField ?? throw new InvalidOperationException("A data-field sort must name a field."), sort.Descending);
-
-        return (sort.Field, sort.Descending) switch
+        foreach (var term in search.Terms)
         {
-            (CollectionSortField.CreatedAt, false) => query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Slug),
-            (CollectionSortField.CreatedAt, true) => query.OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Slug),
-            (CollectionSortField.UpdatedAt, false) => query.OrderBy(x => x.UpdatedAt).ThenBy(x => x.Slug),
-            (CollectionSortField.UpdatedAt, true) => query.OrderByDescending(x => x.UpdatedAt).ThenBy(x => x.Slug),
-            (_, true) => query.OrderByDescending(x => x.Slug),
-            _ => query.OrderBy(x => x.Slug),
+            query = query.Where(x =>
+                CmsDbFunctions.Fold(x.Slug)!.Contains(CmsDbFunctions.Fold(term)!)
+                || CmsDbFunctions.Fold(CmsDbFunctions.JsonText(x.Data, displayField))!.Contains(CmsDbFunctions.Fold(term)!));
+        }
+
+        return query;
+    }
+
+    private static Expression<Func<CollectionItem, int>> Rank(string phrase, string? displayField) =>
+        x => CmsDbFunctions.Fold(CmsDbFunctions.JsonText(x.Data, displayField) ?? x.Slug) == CmsDbFunctions.Fold(phrase) ? 0
+            : CmsDbFunctions.Fold(CmsDbFunctions.JsonText(x.Data, displayField) ?? x.Slug)!.StartsWith(CmsDbFunctions.Fold(phrase)!) ? 1
+            : CmsDbFunctions.Fold(" " + (CmsDbFunctions.JsonText(x.Data, displayField) ?? x.Slug))!.Contains(CmsDbFunctions.Fold(" " + phrase)!) ? 2
+            : 3;
+
+    private static IOrderedQueryable<CollectionItem> Order(IQueryable<CollectionItem> query, CollectionSort sort, Expression<Func<CollectionItem, int>>? rank = null)
+    {
+        var ranked = rank is null ? null : query.OrderBy(rank);
+
+        return sort.Field switch
+        {
+            CollectionSortField.DataField => OrderByDataField(query, ranked, sort.DataField ?? throw new InvalidOperationException("A data-field sort must name a field."), sort.Descending),
+            CollectionSortField.CreatedAt => By(query, ranked, x => x.CreatedAt, sort.Descending).ThenBy(x => x.Slug),
+            CollectionSortField.UpdatedAt => By(query, ranked, x => x.UpdatedAt, sort.Descending).ThenBy(x => x.Slug),
+            _ => By(query, ranked, x => x.Slug, sort.Descending),
         };
     }
 
-    private static IQueryable<CollectionItem> OrderByDataField(IQueryable<CollectionItem> query, string field, bool descending)
+    private static IOrderedQueryable<CollectionItem> OrderByDataField(IQueryable<CollectionItem> query, IOrderedQueryable<CollectionItem>? ranked, string field, bool descending)
     {
-        var ordered = query.OrderBy(x => CmsDbFunctions.JsonValue(x.Data, field) == null);
+        var present = By(query, ranked, x => CmsDbFunctions.JsonValue(x.Data, field) == null);
 
-        return (descending
-                ? ordered.ThenByDescending(x => CmsDbFunctions.JsonValue(x.Data, field))
-                : ordered.ThenBy(x => CmsDbFunctions.JsonValue(x.Data, field)))
-            .ThenBy(x => x.Slug);
+        return By(query, present, x => CmsDbFunctions.JsonValue(x.Data, field), descending).ThenBy(x => x.Slug);
+    }
+
+    private static IOrderedQueryable<CollectionItem> By<TKey>(
+        IQueryable<CollectionItem> query,
+        IOrderedQueryable<CollectionItem>? ordered,
+        Expression<Func<CollectionItem, TKey>> key,
+        bool descending = false)
+    {
+        if (ordered is null)
+            return descending ? query.OrderByDescending(key) : query.OrderBy(key);
+
+        return descending ? ordered.ThenByDescending(key) : ordered.ThenBy(key);
     }
 }

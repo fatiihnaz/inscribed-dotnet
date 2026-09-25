@@ -131,6 +131,7 @@ public sealed class CollectionService : ICollectionService
         ClaimsPrincipal user,
         string userId,
         IDictionary<string, string>? filters,
+        string? search,
         string? sort,
         bool archived,
         int offset,
@@ -150,7 +151,8 @@ public sealed class CollectionService : ICollectionService
             ? CollectionFilterParser.Build(policy.Schema, filters)
             : null;
 
-        var (items, total) = await _repository.ListPagedAsync(key, locale, filterJson, order, archived, offset, limit, cancellationToken);
+        var (items, total, approximate) = await _repository.ListPagedAsync(
+            key, locale, filterJson, CollectionSearchParser.Parse(search), policy.DisplayField, order, archived, offset, limit, cancellationToken);
 
         var enriched = await EnrichAllAsync(policy, items, locale, user, cancellationToken);
 
@@ -181,7 +183,7 @@ public sealed class CollectionService : ICollectionService
             ? null
             : await BuildVirtualItemsAsync(policy, user, locale, userId, cancellationToken);
 
-        return new CollectionListResponse(responses, total, offset, limit, virtualItems);
+        return new CollectionListResponse(responses, total, offset, limit, virtualItems, approximate);
     }
 
     public async Task<CollectionLookupResponse> LookupAsync(
@@ -194,9 +196,9 @@ public sealed class CollectionService : ICollectionService
         CancellationToken cancellationToken = default)
     {
         var policy = await ResolveForReadAsync(key, user, cancellationToken);
-        var contains = string.IsNullOrWhiteSpace(query) ? null : query.Trim();
+        var search = CollectionSearchParser.Parse(query);
 
-        if (contains is not null && slugs is { Count: > 0 })
+        if (search is not null && slugs is { Count: > 0 })
             throw new ValidationException(["Send either 'q' or 'slugs': one searches for a record, the other names records already chosen."]);
 
         if (slugs is { Count: > MaxLookupSlugs })
@@ -206,7 +208,7 @@ public sealed class CollectionService : ICollectionService
             ? null
             : LocaleResolver.Resolve(policy.Locales, requestedLocale, forWrite: false);
 
-        var (items, total) = await _repository.LookupAsync(policy.Key, locale, policy.DisplayField, contains, slugs, limit, cancellationToken);
+        var (items, total) = await _repository.LookupAsync(policy.Key, locale, policy.DisplayField, search, slugs, limit, cancellationToken);
 
         return new CollectionLookupResponse(
             [.. items.Select(item => new CollectionLookupItem(item.Slug, Label(item, policy.DisplayField)))],

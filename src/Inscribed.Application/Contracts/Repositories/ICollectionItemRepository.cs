@@ -7,10 +7,12 @@ public interface ICollectionItemRepository
 {
     Task<IReadOnlyList<CollectionItem>> ListAsync(string key, bool includeArchived = false, CancellationToken cancellationToken = default);
 
-    Task<(IReadOnlyList<CollectionItem> Items, int Total)> ListPagedAsync(
+    Task<(IReadOnlyList<CollectionItem> Items, int Total, bool Approximate)> ListPagedAsync(
         string key,
         string? locale,
         JsonObject? filterContainment,
+        CollectionSearch? search,
+        string? displayField,
         CollectionSort sort,
         bool archived,
         int offset,
@@ -21,7 +23,7 @@ public interface ICollectionItemRepository
         string key,
         string? locale,
         string? displayField,
-        string? contains,
+        CollectionSearch? search,
         IReadOnlyCollection<string>? slugs,
         int limit,
         CancellationToken cancellationToken = default);
