@@ -1,5 +1,5 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-ARG VERSION=2.0.0
+ARG VERSION=2.0.1
 WORKDIR /app
 
 COPY Inscribed.sln Directory.Build.props ./
