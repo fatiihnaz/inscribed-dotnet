@@ -9,6 +9,7 @@ using Inscribed.Auth.Authorization;
 using Inscribed.Auth.Issuer;
 using Inscribed.Auth.Options;
 using Inscribed.Infrastructure;
+using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -67,6 +68,13 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -102,6 +110,10 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseExceptionHandler();
+// Content reads only, where the payloads are (a whole site per language, list
+// windows). `/auth` and `/admin` answer with tokens and keys, and compressing a
+// secret in the same response as caller-supplied input is what BREACH exploits.
+app.UseWhen(context => context.Request.Path.StartsWithSegments("/cms"), branch => branch.UseResponseCompression());
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
