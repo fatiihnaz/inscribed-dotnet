@@ -59,7 +59,11 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        // Every editor request carries Authorization and so needs a preflight;
+        // without a max-age browsers forget the answer after 5 seconds and pay
+        // the extra round trip on nearly every call. Two hours is Chrome's cap.
+        policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()
+            .SetPreflightMaxAge(TimeSpan.FromHours(2));
     });
 });
 
